@@ -1,0 +1,793 @@
+SUBTTL SYSCNF - SYSTEM CONFIGURATION DEFINITION FILE OUTPUT BY MONGEN
+
+
+DEFINE XP(A,B),<A==:B>
+
+
+M.GEN==:331
+
+;;	DECsystem10 (KL,KS) [
+;;	The KL is a system with KL10 CPUs.  The KS is a system with a KS10 CPU.]: ks
+M.KL10==:0
+M.KS10==:1
+M.CPU==:1
+
+;;	System name [
+;;	Type a system name of 24 characters or less.  The system name is displayed 
+;;	in the banner line that is printed when the INITIA monitor command is 
+;;	issued.]: BITXT1
+DEFINE	SYSNAM
+<	ASCIZ	&BITXT1&>
+DEFINE	SYSDAT<
+ASCIZ &14-Feb-14&>
+M.MON==:2
+M.DAY==:16
+M.YEAR==:162
+
+;;	CPU0 serial number (1-10000) [
+;;	Respond with the serial number of the CPU, in the range 1 to 10000.  If your 
+;;	installation has more than one processor, this question is asked for each 
+;;	CPU.  Each serial number must be unique.]: 5080
+M.C0SN==:11730
+M.C1SN==:0
+M.C2SN==:0
+M.C3SN==:0
+M.C4SN==:0
+M.C5SN==:0
+
+;;	Exclude monitor overhead from user run time (YES,NO) [
+;;	Overhead is CPU time spent clock queue processing, command decoding, 
+;;	swapping, and scheduling.  User run time always includes UUO execution and, 
+;;	unless EBOX/MBOX runtime accounting is selected (KL10 systems only), 
+;;	includes IO interrupt service time.
+;;	    If you exclude monitor overhead from user runtime, users recieve a more 
+;;	accurate accounting of their processor usage because user runtime is 
+;;	calculated independently of any monitor overhead.  However, installations
+;;	that charge their customers for processor usage should be aware that the 
+;;	exclusion of monitor overhead decreases the user runtime totals by 10 to 
+;;	20 percent.
+;;	    If you include monitor overhead with user runtime, apportioned monitor
+;;	overhead is included in each user's runtime.  Regardless of how you 
+;;	respond to this question, monitor overhead is calculated as a separate 
+;;	statistic that can be used in determining the amount of CPU time spent for 
+;;	overhead.]: 
+M.RTCO==:1
+M.EMRT==:0
+M.XPI==:0
+
+;;	Account verification (YES,NO) [
+;;	LOGIN and the batch system will verify that the user has specified a valid 
+;;	account.
+;;	    If you answer YES, when accounts are associated with their PPNs and 
+;;	when ACTDAE is running, users can log in only if they specify a valid 
+;;	account string.  If you answer NO, no verification test is made.]: NO
+M.ACV==:0
+M.MOS==:0
+;;	
+;;	Autoconfigured device options:
+
+M.SCA==:0
+DEFINE	MDSCA,<
+> ;;END DEFINE MDSCA
+
+;;	  Include Ethernet service (NO,YES,PROMPT)[
+;;	Load monitor modules needed to communicate using Ethernet.  These modules 
+;;	include ETHSER and ETHUUO, plus the hardware driver specific to the type of 
+;;	DECsystem-10 being built.
+;;	Respond with one of the following:
+;;		NO      Exclude driver
+;;		YES     Include driver
+;;		PROMPT  Include driver and prompt for parameters]: 
+
+M.ENET==:0
+DEFINE	MDENET,<
+> ;;END DEFINE MDENET
+
+M.SA10==:0
+DEFINE	MDSA10,<
+> ;;END DEFINE MDSA10
+
+M.DPX==:0
+DEFINE	MDDPX,<
+> ;;END DEFINE MDDPX
+
+M.DRX==:0
+DEFINE	MDDRX,<
+> ;;END DEFINE MDDRX
+
+M.FHX==:0
+DEFINE	MDFHX,<
+> ;;END DEFINE MDFHX
+
+M.FSX==:0
+DEFINE	MDFSX,<
+> ;;END DEFINE MDFSX
+
+M.MDX==:0
+DEFINE	MDMDX,<
+> ;;END DEFINE MDMDX
+
+;;	  Prompt for RP0x/RM0x Massbus disks (NO,YES)[
+;;	RP0x and RM0x disks are available through the use of Massbus hardware. 
+;;	RPXKON is the driver module for these disks.
+;;	Respond with one of the following:
+;;		NO      Do not prompt
+;;		YES     Prompt for parameters]: 
+
+M.RPX==:1
+DEFINE	MDRPX,<
+	EXTERN	RPXKON
+	MDCPUN	(00,00,00,00,00,00)
+	MDTERM
+> ;;END DEFINE MDRPX
+
+M.RNX==:0
+DEFINE	MDRNX,<
+> ;;END DEFINE MDRNX
+
+M.RAX==:0
+DEFINE	MDRAX,<
+> ;;END DEFINE MDRAX
+
+M.DSX==:0
+DEFINE	MDDSX,<
+> ;;END DEFINE MDDSX
+
+;;	  Include TM02/TM03 magtapes (NO,YES,PROMPT)[
+;;	TU45 and TU77 magtape units are available through the use of TM02 or TM03 
+;;	controllers.  TM2KON is the driver module for these magtapes.
+;;	Respond with one of the following:
+;;		NO      Exclude driver
+;;		YES     Include driver
+;;		PROMPT  Include driver and prompt for parameters]: y
+
+M.TM02==:1
+DEFINE	MDTM02,<
+	EXTERN	TM2KON
+	MDCPUN	(00,00,00,00,00,00)
+	MDTERM
+> ;;END DEFINE MDTM02
+
+M.TX01==:0
+DEFINE	MDTX01,<
+> ;;END DEFINE MDTX01
+
+M.DX20==:0
+DEFINE	MDDX20,<
+> ;;END DEFINE MDDX20
+
+M.TM78==:0
+DEFINE	MDTM78,<
+> ;;END DEFINE MDTM78
+
+M.TM10==:0
+DEFINE	MDTM10,<
+> ;;END DEFINE MDTM10
+
+M.TC10==:0
+DEFINE	MDTC10,<
+> ;;END DEFINE MDTC10
+
+M.TS10==:0
+DEFINE	MDTS10,<
+> ;;END DEFINE MDTS10
+
+M.LP10==:0
+DEFINE	MDLP10,<
+> ;;END DEFINE MDLP10
+
+M.DLP==:0
+DEFINE	MDDLP,<
+> ;;END DEFINE MDDLP
+
+;;	  Include UNIBUS/LP20 printers (NO,YES,PROMPT)[
+;;	This option provides support for LP20 UNIBUS line printers.
+;;	Respond with one of the following:
+;;		NO      Exclude driver
+;;		YES     Include driver
+;;		PROMPT  Include driver and prompt for parameters]: y
+
+M.LP20==:1
+DEFINE	MDLP20,<
+	EXTERN	LP2SER
+	MDCPUN	(00,00,00,00,00,00)
+	MDTERM
+> ;;END DEFINE MDLP20
+
+M.XY10==:0
+DEFINE	MDXY10,<
+> ;;END DEFINE MDXY10
+
+M.CR10==:0
+DEFINE	MDCR10,<
+> ;;END DEFINE MDCR10
+
+M.DCR==:0
+DEFINE	MDDCR,<
+> ;;END DEFINE MDDCR
+
+;;	  Include UNIBUS/CD20 card readers (NO,YES,PROMPT)[
+;;	This option provides support for CD20 UNIBUS card readers.
+;;	Respond with one of the following:
+;;		NO      Exclude driver
+;;		YES     Include driver
+;;		PROMPT  Include driver and prompt for parameters]: y
+
+M.CR20==:1
+DEFINE	MDCR20,<
+	EXTERN	CD2SER
+	MDCPUN	(00,00,00,00,00,00)
+	MDTERM
+> ;;END DEFINE MDCR20
+
+M.CP10==:0
+DEFINE	MDCP10,<
+> ;;END DEFINE MDCP10
+
+M.PTP==:0
+DEFINE	MDPTP,<
+> ;;END DEFINE MDPTP
+
+M.PTR==:0
+DEFINE	MDPTR,<
+> ;;END DEFINE MDPTR
+
+;ACCUMULATED SYMBOLS
+M.DISK==:1		;DISK SERVICE
+M.TAPE==:1		;TAPE SERVICE
+M.CDP==:0		;CARD PUNCH SERVICE
+M.CDR==:1		;CARD READER SERVICE
+M.LPT==:1		;LINE PRINTER SERVICE
+M.PLT==:0		;PLOTTER SERVICE
+M.PTP==:0		;PAPER TAPE PUNCH SERVICE
+M.PTR==:0		;PAPER TAPE READER SERVICE
+M.DTEN==:0
+M.DC10==:0
+M.DC68==:0
+M.DC76==:0
+
+;;	  DZ-11 TTY lines (0-32) [
+;;	Respond with the total number of TTY lines.]: 32
+M0DZNL==:40
+M.D70N==:0
+M.D71N==:0
+M.D72N==:0
+M.D73N==:0
+M.D74N==:0
+M.D75N==:0
+M.D76N==:0
+M.D77N==:0
+M.D78N==:0
+M.D79N==:0
+M.D7AN==:0
+M.D7BN==:0
+M.TTG0==:0
+M.TTG1==:0
+M.DSG0==:0
+M.DSG1==:0
+M.68L0==:0
+M.68L1==:0
+M.DZNL==:40
+M.TTDN==:0
+M.TLTL==:40	;TOTAL LOCAL TTY LINES
+
+;;	
+
+;;	  OPR octal line number (CTY,0-37) [
+;;	Respond with the octal number of the terminal you want to designate as 
+;;	device OPR, the operator-privileged terminal.  This is normally the 
+;;	terminal that will be running OPR, the operator service program, to control 
+;;	the system utility programs such as the device spoolers and the mount 
+;;	request processor.  The default is the console terminal (CTY).]: 
+DEFINE	OPRLIN<
+
+	OPRL	CTY
+>
+
+DEFINE	MACDSD<
+
+;;	  Data set lines [
+;;	Class of terminal for LOGIN, LOGIN resets line to computer echoing and no 
+;;	hardware tabs.
+;;	    This question accepts a list of octal terminal line numbers.  The 
+;;	terminal line can be indicated by its number (n), a range of terminal lines 
+;;	can be indicated by the lowest and highest numbers in the range separated 
+;;	by a hyphen (m-n), and the CTY is always indicated by CTY.  Type each 
+;;	designator on a separate line and end the list with an extra carriage 
+;;	return.]
+;;	0-37
+L 0,37
+;;	
+>
+;;	
+
+;;	Number of Jobs (1-511) [
+;;	Respond with the maximum number of jobs, attached and detached, not 
+;;	counting the null job.  Specify only the maximum number of jobs needed.
+;;	Monitor size increases proportionally to the maximum number of jobs.]: 63
+M.JOB==:77
+MD.SEG==:0
+
+;;	Maximum pages of core for each job (0,0-16384) [
+;;	Answer this question with the maximum amount of physical memory that any 
+;;	one job may use.  This value is specified in number of 512-word pages.  A 
+;;	response of 0 indicates all of core, or the maximum number of pages 
+;;	possible.  The value you specify here can be overridden by the SET CORMAX 
+;;	monitor command.]: 
+M.CORE==:0
+
+;;	Total amount of system core in K (512-4096) [
+;;	ONCE-only reports if there is less core at startup.  Answer this question 
+;;	with the total amount of physical memory that the system has.  At monitor 
+;;	startup time, ONCE prints a message if the actual amount of memory on line 
+;;	is less than your response to this question.]: 
+;;	1024
+M.NKC==:2000
+
+;;	Clock ticks per second (60,50) [
+;;	Clock ticks per second corresponds to power line frequency.  In North 
+;;	America, the correct response is 60; in most other countries, the correct 
+;;	response is 50.]: 
+M.TPS==:74
+M.RTD==:0
+
+;;	Allow jobs to be locked in core (YES,NO) [
+;;	If you answer NO, no users will be allowed to lock their jobs in core 
+;;	memory.
+;;	    The ANF-10 network programs DTELDR and NETLDR require the ability to 
+;;	lock a job in memory.  Therefore, if you intend to use these programs, you 
+;;	must answer this question YES.  This question is always asked for KS 
+;;	systems, and is asked for KL systems only if no real-time devices are 
+;;	employed.]: 
+M.LOK==:1
+
+;;	Guaranteed number of pages for unlocked jobs (0,0-16384) [
+;;	Answer this question with the number of pages of memory guaranteed to all 
+;;	jobs that are not locked in core.  The default, 0, indicates that all of 
+;;	memory is available to unlocked jobs.
+;;	    If your answer is 0, no jobs are allowed to be locked, as a safeguard 
+;;	against locked jobs usurping all of the system's memory.  The value 
+;;	specified in your answer to this question can be overridden by the SET 
+;;	CORMIN monitor command.]: 
+M.MGC==:0
+
+;;	Number of pages reserved for locking jobs in Exec Virtual Memory (10,0-?) [
+;;	The default, 10, is needed for DTELDR.  Extra pages are required for 
+;;	running performance analysis tools such as SNOOPY and DNSNUP or for any 
+;;	real-time applications using indirect CONSO masks or fast mode.  Reserving
+;;	pages for EVM reduces the amount of available system free core by an 
+;;	equivalent amount.]: 
+M.EVM==:12
+
+;;	Number of high priority interrupt queues (0,0-15): 15
+M.HPQ==:17
+
+;;	Meter (NO,YES) [
+;;	Do you want to include performance analysis metering with the METER UUO? 
+;;	This option has officially been superseded by the PERF. UUO.]: 
+M.METR==:0
+
+;;	KASER (NO,YES) [
+;;	Do you want to include support for simulation of KA10 long floating point 
+;;	instructions?]: 
+M.FPS==:0
+
+;;	MPXSER (YES,NO) [
+;;	Do you want to include support for device MPX?  MPX allows more than one 
+;;	device to be associated with a given I/O channel.  This feature is required 
+;;	for DTELDR.  If you answer YES, the multiplexed-channel software MPX will 
+;;	be loaded.]: 
+M.MPX==:1
+
+;;	PSISER (YES,NO) [
+;;	Do you want to load the Programmed Software Interrupt SERvice software? 
+;;	PSISER supports the PISYS. UUO, which allows users to specify the 
+;;	conditions for which an interrupt is to occur.  PSISER is required for the 
+;;	operation of GALAXY-10.]: 
+M.PSI==:1
+
+;;	IPCF (YES,NO) [
+;;	Do you want to load the Inter-Process Communication Facility software?  
+;;	IPCF allows jobs and/or system processes to communicate with each other. 
+;;	IPCF is required for the operation of MCS-10 and GALAXY-10.]: 
+M.IPCF==:1
+
+;;	ENQ/DEQ (YES,NO) [
+;;	Do you want to load the ENQ/DEQ software?  ENQ/DEQ provides sychronization 
+;;	functions which allow simultaneous file updates by multiple co-operating 
+;;	processes.]: 
+M.EQDQ==:1
+
+;;	Disk sets (ALL) [
+;;	Answer this question with the list of disk sets to be mounted by this 
+;;	system.  If the list is empty, ALL disk sets will be mountable.  Disk set 
+;;	numbers range from 1 through 36.  List entries in the form:
+;;		
+;;		3,9-12,14,...
+;;		
+;;	]: 
+M.SETS==:0,,0
+
+;;	Configure non-autoconfigured hardware (NO,YES) [
+;;	Do you want to include unsupported hardware in your configuration?]: 
+M.VP10==:0
+M0VP10==:0
+M.340==:0
+M0340==:0
+M.VBXC==:0
+M0VBXC==:0
+M.DIS==:0
+M0DIS==:0
+M0TD10==:0
+M0RX20==:0
+M0XTC==:0
+M.XTC==:0
+M0XTL==:0
+M00D78==:0
+M01D78==:0
+M02D78==:0
+M03D78==:0
+M04D78==:0
+M05D78==:0
+M06D78==:0
+M07D78==:0
+M0D78L==:0
+M0XXI==:0
+M0XXO==:0
+M.DN6D==:0
+M00D60==:0
+M01D60==:0
+M02D60==:0
+M03D60==:0
+M04D60==:0
+M05D60==:0
+M06D60==:0
+M07D60==:0
+M0D60L==:0
+M.0D60==:0
+M.1D60==:0
+M.2D60==:0
+M.3D60==:0
+M.4D60==:0
+M.5D60==:0
+M.6D60==:0
+M.7D60==:0
+M.D60L==:0
+M.DN6K==:0
+M.DN6R==:0
+M.DN60==:0
+
+;;	Number of KMC/DUP Lines (0,0-2) [
+;;	Respond with the number of DUP11 synchronous line units attached to a KMC11 
+;;	controller.]: 1
+M.KDUP==:1
+
+;;	Type of line for KDP0 (ANF10,DECNET,USER,IBM) [
+;;	This question is asked for each KDP (KMC/DUP line) indicated in the 
+;;	previous question.  Type the name of the network product that the line 
+;;	will support.]: DECNET
+M.0KDP==:2
+M.DMRN==:0
+M.DN60==:0
+M.DN6K==:0
+M.DN6R==:0
+M00D85==:0
+M01D85==:0
+M02D85==:0
+M03D85==:0
+M04D85==:0
+M05D85==:0
+M06D85==:0
+M07D85==:0
+M.TD10==:0
+M.DAS78==:0
+M.XXI==:0
+M.XXO==:0
+M.RX20==:0
+
+;;	Number of PTYs (20,1-476) [
+;;	A PTY is a pseudo-terminal.  OPSER subjobs and batch jobs use PTYs for I/O.  
+;;	Each operator service program and batch stream needs at least one PTY.  You 
+;;	must include at least one PTY for your monitor.  Respond with the number of 
+;;	pseudo-terminals that your monitor must support.]: 
+M.PTY==:24
+
+;;	
+;;	Network software (YES,NO) [
+;;	Do you want to include support for communications with other Digital 
+;;	operating systems?]: YES
+M.NET==:1
+
+;;	Node name [
+;;	The name may one to six characters in length.]: BITXT1
+M.SNAM==:<SIXBIT &BITXT1&>
+
+;;	Number of remote TTYs (456,0-456) [
+;;	Respond with the maximum number of terminals from remote nodes to be 
+;;	handled at any one time.]: 8
+M.RTTY==:10
+
+;;	
+;;	ANF-10 software (YES,NO) [
+;;	Answer YES if you want to load the monitor modules needed to communicate 
+;;	with ANF-10 hosts and remote stations.]: 
+M.ANF==:1
+
+;;	  Node name (BITXT1) [
+;;	Provide a node name, independent of that used as the system-wide node name.  
+;;	The name can be one to six characters in length.  DECnet-10, Version 4 
+;;	requires that the first character of the node name be an alphabetic 
+;;	character.  The same node name will be used for both ANF-10 and DECnet-10 
+;;	communications.]: 
+M.ANAM==:<SIXBIT &BITXT1&>
+
+;;	  Node number of central site (1,1-77) [
+;;	Provide a unique octal number to identify the system to the ANF network.]: 10
+M.ANUM==:10
+
+;;	  Remote terminals (YES,NO) [
+;;	Answer YES if you want to include code to allow remote terminals to "SET 
+;;	HOST" to this system.]: 
+M.RMCR==:1
+
+;;	  Virtual terminals (YES,NO) [
+;;	Answer YES if you want to include code to allow local terminals to "SET 
+;;	HOST" to other systems.]: 
+M.RVTM==:1
+
+;;	  Remote card readers (YES,NO) [
+;;	Answer YES if you want to include code to allow access to card readers on 
+;;	ANF remote stations.]: 
+M.RCDR==:1
+
+;;	  Remote line printers (YES,NO) [
+;;	Answer YES  if you want to include code to allow access to line printers on 
+;;	ANF remote stations.]: 
+M.RLPT==:1
+
+;;	  Remote paper tape punches (NO,YES) [
+;;	Answer NO to exclude code to allow access to paper tape punches on ANF 
+;;	remote stations.]: 
+M.RPTP==:0
+
+;;	  Remote paper tape readers (NO,YES) [
+;;	Answer NO to exclude code to allow access to paper tape readers on ANF
+;;	remote stations.]: 
+M.RPTR==:0
+
+;;	  Remote plotters (NO,YES) [
+;;	Answer NO to exclude code to allow access to plotters on ANF remote 
+;;	stations.]: 
+M.RPLT==:0
+
+;;	  Remote DN8x DDCMP devices (YES,NO) [
+;;	Answer NO to exclude code to allow access to DN8x LBLK-to-DDCMP devices on 
+;;	ANF remote stations.]: 
+M.RDDP==:1
+
+;;	  Remote data entry terminals (YES,NO) [
+;;	Answer YES to include code to allow access to remote data entry terminals 
+;;	(RDX devices).]: 
+M.RDX==:1
+
+;;	  Remote task-to-task (YES,NO) [
+;;	Answer YES to include code to allow access to remote jobs.  The TSKSER 
+;;	module enables ANF-10 intertask communication.]: 
+M.RJOB==:1
+
+;;	  Number of connects (256,1-512) [
+;;	Respond with the maximum number of simultaneous connections allowed.]: 8
+M.CONN==:10
+
+;;	
+;;	DECnet software (YES,NO) [
+;;	Answer YES if you want to load the monitor modules needed to communicate 
+;;	with other DECnet nodes.]: 
+M.DECN==:1
+
+;;	  Node name (BITXT1) [
+;;	Provide a node name, independent of that used as the system-wide node name.  
+;;	The name can be one to six characters in length.  DECnet-10, Version 4 
+;;	requires that the first character of the node name be an alphabetic 
+;;	character.  The same node name will be used for both ANF-10 and DECnet-10 
+;;	communications.]: 
+M.DNAM==:<SIXBIT &BITXT1&>
+
+;;	  Area number of central site (1,1-63) [
+;;	Provide a decimal area number for multi-area DECnet network configurations.]: 7
+M.DHOM==:7
+
+;;	  Node number of central site (1,1-1023) [
+;;	Provide a unique decimal number to identify this system to other nodes in 
+;;	the DECnet network.]: 80
+M.DNUM==:120
+
+;;	  Router type (ROUTING,NONROUTING) [
+;;	Specify router type.  ROUTING nodes can have multiple circuits and perform 
+;;	DECnet routing.  NONROUTING nodes have only an ethernet circuit and perform 
+;;	no DECnet routing.
+;;	    If you have a KL and want to communicate with a Multifunctions 
+;;	Communications Base (MCB), or if you have a KS, answer this question with 
+;;	ROUTING.]: routing
+M.DRTY==:4
+
+;;	  Transmit password (DECNET20) [
+;;	The transmit password is used when initializing a point-to-point KDP, DTE, 
+;;	or DMR link.  You may provide a password of 64 characters or less, or press 
+;;	RETURN to accept the default password.]: 
+
+;;	  Remote terminals (YES,NO) [
+;;	Answer YES to include code that allows incoming jobs using DECnet 
+;;	connections. The module loaded will be NRTSER.]: 
+M.DNVT==:1
+M.LAT==:0
+
+RADIX	10
+;;	
+;;	Decimal "symbol,value" [
+;;	For any decimal symbols to be defined, type one "symbol,value" pair per 
+;;	line and terminate the list with an extra carriage return.  The symbols and 
+;;	values that you enter here are those that deviate from the defaults defined 
+;;	in the distributed common modules (COMMON, COMDEV, and COMMOD).  The radix 
+;;	is set automatically for each symbol, in accordance with the radix 
+;;	specified in the question.  (In this case, decimal.  You will be given the 
+;;	opportunity to change the values for symbols with octal and SIXBIT values 
+;;	in the questions that follow.)  For example, to increase the length of a 
+;;	memory cycle from 1,000 nanoseconds to 1,760 nanoseconds, 
+;;	type:
+;;		
+;;	     NSPMEM,1760
+;;		
+;;	followed by a carriage return.  Unless you specify otherwise, the symbols 
+;;	will be defined with the default values.  If the default values are 
+;;	acceptable, press RETURN in response to this question.]
+;;	
+RADIX	8
+;;	
+;;	Octal "symbol,value" [
+;;	For any octal symbols to be defined, type one "symbol,value" pair per line 
+;;	and terminate the list with an extra carriage return.  For example, to 
+;;	change the standard magtape density from 6250 bits per inch (BPI) to 1600, 
+;;	type:
+;;		
+;;	     STDENS,4
+;;		
+;;	followed by a carriage return.  In this example, 1 = 200 BPI, 2 = 556 BPI, 
+;;	3 = 800 BPI, and 5 = 6250  BPI.  If the default values are acceptable, 
+;;	press RETURN in response to this question.]
+;;	
+;;	
+;;	SIXBIT "symbol,value" [
+;;	For any SIXBIT symbol to be defined, type one "symbol,value" pair per line 
+;;	and terminate the list with an extra carriage return.  For example, to 
+;;	change the name of the mail program from MS to PO, type:
+;;		
+;;	     M.MAIL,PO
+;;		
+;;	followed by a carriage return.   If the default values are acceptable, 
+;;	press RETURN in response to this question.]
+;;	
+
+DEFINE	SPCINT<
+;;	
+;;	Type "device-mnemonic,PI-channel" for special devices [
+;;	This question allows you to build the monitor to support a device driver 
+;;	that is not part of the standard monitor.  Type the device name and the 
+;;	priority-interrupt channel for a device driver that does not save the ACs 
+;;	on a priority interrupt, and that does not require Device Data Blocks 
+;;	(DDBs) in the monitor.  A driver of this type can support only one device.
+;;	The device mnemonic must be 3 characters or less in length.  Type an extra 
+;;	carriage return when through.]
+;;	
+>
+
+DEFINE	SPCDDB<
+;;	
+;;	Type "device-mnemonic,PI-channel,no.-of-devices" [
+;;	This question allows you to define a device driver that requires Device 
+;;	Data Blocks (DDBs) and will support multiple devices.  Specify the device 
+;;	name,  priority-interrupt channel, and number of devices to be supported.
+;;	The device-mnemonic must be 3 characters or less in length.  Type an extra 
+;;	carriage return when through.]
+;;	
+>
+
+DEFINE	SPCSAV<
+;;	
+;;	Type "device-mnemonic,PI-channel,highest-ac-to-save" [
+;;	This question allows you to define device drivers that include a channel 
+;;	save routine to save ACs up to the "highest AC to save".  Specify the 
+;;	device name, priority-interrupt channel, and the number of the highest AC 
+;;	to save on an interrupt.  The device-mnemonic must be 3 characters or less 
+;;	in length.  Type extra carriage return when through.]
+;;	
+>
+
+DEFINE	SPCEDN<
+;;	
+;;	Type "ersatz-device,P,Pn,search-list-type" [
+;;	This question allows you to define your own ersatz device names.  
+;;	Monitor-standard ersatz device names must not be redefined.  To create 
+;;	additional site-specific ersatz device names, type a device name in exactly 
+;;	3 characters, the Project,Programmer Number (P,PN) associated with the 
+;;	device, and which search list to use (either ALL, SYS, or JOB) and press 
+;;	RETURN.  You may define another ersatz device, or press RETURN again to 
+;;	finish.]
+;;	
+>
+
+DEFINE	SPCCMD<
+;;	
+;;	Type "command-name,dispatch,flags,unique-bits,PRVTAB-name" [
+;;	This question allows you to create new monitor commands or to redefine 
+;;	existing monitor commands.  The command name that you specify here will run 
+;;	the program that you specify, using the characteristics that you specify. 
+;;	Type each new command name followed by the information that the monitor 
+;;	needs to process the command.  This information is specified by each of the 
+;;	following components.  All components must be separated by commas, as shown 
+;;	above.  To omit a component, include only the comma in its place.  The 
+;;	components are:
+;;		
+;;	   1. Command-name.  The command-name is the name of the monitor command to
+;;	      be added.  Type the command name as a single SIXBIT alphanumeric word
+;;	      or a single SIXBIT character enclosed in angle-brackets, or omit the
+;;	      name if you only want to extend PRVTAB.
+;;		
+;;	   2. Dispatch address.  The dispatch address identifies the program or 
+;;	      routine to run when the command is processed.  This may be the name 
+;;	      of the program to run from SYS (file name only), or it may  be 
+;;	      omitted if the program name and command name are equivalent.  The 
+;;	      dispatch address may also be a location (label) of a routine in the 
+;;	      monitor.  For example, #RUNQUE.
+;;		
+;;	   3. Flags.  Flags are defined in COMMON to specify the type of command 
+;;	      processing for the monitor to use.  Separate the flags with an 
+;;	      exclamation point (!).  Some of the possible flags are:
+;;		
+;;	         Flag         Meaning
+;;		
+;;	         APPFLG       saves your current context
+;;	         CMWRQ        requeues the job after command processing
+;;	         CUSTMR       reserved for customer implementation
+;;	         INCORE       requires that the job be in memory
+;;	         NBATCH       not allowed from a batch job
+;;	         NOACT        delayed if any devices are active
+;;	         NOCORE       core is not required
+;;	         NOINCK       can be processed if issued without a job
+;;	         NOJOBN       does not require a job number
+;;	         NOLOGIN      does not require that a job be logged in
+;;	         NOMESS       suppresses output of SET WATCH statistics
+;;	         NOPER        monitor must not prompt after command completion
+;;	         NORUN        requires that the job be halted
+;;	         NXONLY       is not legal if the job is execute-only
+;;	         TTYRNC       monitor should put job in monitor mode
+;;	         TTYRNU       monitor should put job in user mode       
+;;	         TTYRNW       continue I/O wait after command processing
+;;		
+;;	   4. Unique bits.  Unique bits are bit numbers you can define to specify 
+;;	      the number of characters that make this command unique.  This is 
+;;	      specified in the form INIQ.n, where 'n' is the number of characters 
+;;	      from 1 to 4.
+;;		
+;;	   5. PRVTAB-name.  The PRVTAB-name is the name of the program to place in 
+;;	      the monitor table PRVTAB.  This should be equivalent to the dispatch 
+;;	      program name and may be omitted if the command should not be included
+;;	      in PRVTAB.  PRVTAB is the monitor's list of priviledged CUSPs.
+;;		
+;;	Type extra carriage return when through.]
+>
+DEFINE SPCCLS<
+>
+;;	
+;;	Additional terminals for classes:
+DEFINE SPCCLX<
+>
+
+;;	
+;;	System default terminal type (TTY) [
+;;	Type the name of the default termainl type for your system.  The terminal 
+;;	type name must be 1 to 6 characters in length.  The monitor will assign 
+;;	this type to all lines at system start-up, before INITIA runs.]: VT100
+M.DTTT==:<SIXBIT &VT100&>
+;;	
+;;	END OF SYSCNF.MAC

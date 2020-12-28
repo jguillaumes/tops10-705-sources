@@ -1,0 +1,90 @@
+UNIVERSAL F - TOPS-10 SOFTWARE FEATURE TESTS
+SUBTTL	WRITTEN BY MONGEN %104(331)
+
+
+COMMENT	&
+
+
+      COPYRIGHT (C) DIGITAL EQUIPMENT CORPORATION, MAYNARD MASS.
+	1970, 1971, 1972, 1973, 1974, 1975, 1976, 1977, 1978
+	      1979, 1980, 1982, 1984, 1986, 1987, 1988, 1990.
+			ALL RIGHTS RESERVED.
+
+&
+	M.F==:104	;MONGEN VERSION
+
+
+
+
+;----------------------------------------------------------------------
+;		HARDWARE OPTIONS
+;----------------------------------------------------------------------
+	FTEMRT==:0	;EBOX/MBOX USER RUNTIME ACCOUNTING
+	FTKL10==:0	;KL10 SUPPORT
+	FTKS10==:-1	;KS10 SUPPORT
+	FTMP==:0	;SYMMETRIC MULTIPROCESSING SUPPORT
+	FTXMON==:0	;EXTENDED ADDRESSING SUPPORT
+
+
+
+;----------------------------------------------------------------------
+;		COMMUNICATIONS AND NETWORKS FEATURES
+;----------------------------------------------------------------------
+	FTCIDNET==:0	;DECNET ON THE CI BUS (REQUIRES FTSCA)
+	FTDECNET==:-1	;DECNET SOFTWARE
+	FTEMOP==:0	;ETHERNET MAINTENANCE (REQUIRES FTENET)
+	FTENET==:0	;ETHERNET SERVICE
+	FTMIC==:-1	;MACRO COMMAND PROCESSOR SUPPORT)
+	FTMLOG==:-1	;MIC LOG FILE SUPPORT (REQUIRES FTMIC)
+	FTNET==:-1	;ANF-10 NETWORK SOFTWARE
+
+
+
+;----------------------------------------------------------------------
+;		I/O FEATURES
+;----------------------------------------------------------------------
+	FTCIDSK==:0	;DISKS ON CI BUS (REQUIRES FTSCA)
+	FTCITAP==:0	;MAGTAPES ON CI BUS (REQUIRES FTSCA)
+	FTDUAL==:0	;DUAL-PORTED DISKS
+	FTFDAEM==:-1	;FILE DAEMON SUPPORT
+	FTMPXSER==:-1	;MULTIPLEX DEVICES ON I/O CHANNELS
+	FTSCA==:0	;SYSTEMS COMMUNICATION ARCHITECTURE SUPPORT
+
+
+
+;----------------------------------------------------------------------
+;		SCHEDULER FEATURES
+;----------------------------------------------------------------------
+	FTNSCHED==:-1	;CPU RESOURCE ALLOCATION CODE
+	FTPSCD==:-1	;SCHEDULER PERFORMANCE GATHERING
+	FTRSP==:-1	;MEASURE TTY RESPONSE AND OTHER METRICS
+
+
+
+;----------------------------------------------------------------------
+;		UUO FEATURES
+;----------------------------------------------------------------------
+	FTHPQ==:-1	;HIGH PRIORITY QUEUE
+	FTLOCK==:-1	;ALLOW JOBS TO LOCK IN CORE
+	FTPEEKSP==:-1	;PEEK AND SPY UUOS
+	FTPOKE==:-1	;POKE UUO
+	FTRTTRP==:0	;REAL-TIME TRAPPING
+
+
+
+;----------------------------------------------------------------------
+;		MISCELLANEOUS FEATURES
+;----------------------------------------------------------------------
+	FTMDA==:-1	;MOUNTABLE DEVICE ALLOCATOR
+	FTPATT==:-1	;ALLOCATE SPACE TO PATCH TABLES
+	FTTLAB==:-1	;TAPE LABELING FACILITY
+
+
+
+;----------------------------------------------------------------------
+;		CUSTOMER DEFINED FEATURES
+;----------------------------------------------------------------------
+
+
+
+	END

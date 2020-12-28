@@ -1,0 +1,867 @@
+TITLE	D8EINT	"FEK" service routine for ANF-to-Ethernet	- V014
+SUBTTL	RDH	6-OCT-87
+
+	SEARCH	F,S,NETPRM,ETHPRM,MACSYM
+
+	$RELOC
+	$HIGH
+
+
+;THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED
+;  OR COPIED ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE.
+;
+;COPYRIGHT (c) DIGITAL EQUIPMENT CORPORATION 1985,1986,1988.
+;ALL RIGHTS RESERVED.
+
+.CPYRT<1985,1988>
+
+
+XP	VD8EINT,014	;VERSION NUMBER
+
+
+IFE FTENET,<
+	PASS2
+	PRINTX [FTENET is turned off in D8EINT, suppressing assembly]
+	END
+> ;IFE FTENET
+
+
+ENTRY	D8EINT
+D8EINT::
+                           Comment \
+
+OVERVIEW
+
+D8EINT is the ANF/Ethernet interface module.
+
+As with D8SINT, D8EINT is a software-only interface between the ANF
+network and actual hardware service routine (ETHSER in this case).
+Unlike most FEKs however, the "NI" FEK is a hardware-independent in-
+terface, and in particular doesn't care which cpu runs the FEK service
+routines, or, for that matter, what type of cpu runs them.
+
+At this writing, ETHSER presents only a single "channel" to the user
+(e.g., ANF) with no provision for more than one "NI" network.  While
+D8EINT was written with multiple "channels" in mind, D8EINI in partic-
+ular will need work to run in a multiple-channel environment (there
+are a lot of unanswered questions about such an environment, like what
+it looks like).
+
+D8EINT uses two types of FEKs, so-called "master" and "slave" FEKs.
+Each Ethernet channel (ETH-n) has one master FEK associated with it.
+The ETH-0 master FEK is hardwired into COMMON along with all the other
+"normal" FEKs, FEKs for other Ethernet channels (if such ever occurs)
+are generated dynamically at SYSINI time and linked into the FEK chain.
+All Ethernet input operations are done via a master FEK and never
+via a slave FEK. All multicast NCL traffic (the periodic NODEID as
+described below) goes out via a master FEK.
+
+Each master FEK points to a (conceivably-0-length) chain of slave FEKs.
+There is one slave FEK for each NCL node on the Ethernet (this is how
+the nodes are faked out as "neighbors" of this host node). NCL messages
+for a specific node are output via these slave FEKs (but be aware that
+the output-done interrupt comes back via the slave's master FEK!!).
+
+
+RESTRICTIONS
+
+The first pass at NCL on the ethernet implements a restricted NCL
+service by treating each other NCL node on the ethernet as an immediate
+neighbor (indistinguishable from any other 'point-to-point' communications
+link). This means that the number of NCL nodes supportable on a single
+ethernet is drastically limited by NGHMAX - the maximum number of
+neighbors any node in the net can support. This restriction allows NCL
+to directly support the ethernet with only the most minor of protocol
+changes (support of a 'broadcast' NODEID message). To properly support
+NCL on an ethernet would require a significant, ah, enhancement of the
+neighbors-based routing philosophy . . .
+
+Since the KLNI can't deal with 7-bit byte pointers (boy, ever since
+the DL-10 passed away it's been a steady down-hill trend!!!!!!!!!!)
+NETSER must provide an 8-bit byte buffer. For the moment, it is assumed
+that the buffer is contiguous and that there is only one byte count
+and pointer for the entire PCB.
+
+
+ETHERNET-SPECIFIC NCL PROTOCOL
+
+The NODEID message format is extended to include a 'serial number'
+(based on the ethernet 'uptime').
+
+As with other FEKs (the NUL FEK excluded of course) a NODEID is the
+first message transmitted through a FEK when the FEK comes 'online'.
+This NODEID is always a 'broadcast' ethernet message. Periodically
+thereafter another NODEID is 'broadcast', with an incremented serial
+number (unlike other FEKs where a NODEID is NEVER sent again until
+the FEK has gone offline and come back online).
+
+Whenever an ethernet broadcast NODEID is received from an unknown NCL
+node (or even a known NCL node not on the ethernet) that node is marked
+as a "neighbor" (*) on the ethernet and the serial number is stashed away.
+Any subsequent broadcast NODEID is ignored as long as the serial number
+monotonically increases. If a broadcast NODEID is received with a serial
+number which is smaller, then the NCL logical link is reinitialized.
+
+Other than the serial-numbered NODEID message, the NCL protocol treats
+the ethernet just like any other communications line.
+
+(*) = The NCL "neighbor" is given its very own "slave" FEK, linked back
+to the master FEK for that Ethernet channel. As far as NETSER is concerned
+it looks just like any other "real" FEK.
+
+
+FEK USAGE
+
+The Ethernet FEKs have several (quite a few, actually) specific entries.
+They are:
+
+FEKNIA	For a master FEK, FEKNIA contains the ANF protocol "broadcast"
+	address (same as %NTNIM). For a slave FEK, FEKNIA contains the
+	remote Ethernet destination address for the ANF node associated
+	with this FEK. With this setup, and output to a specific node is
+	queued via that node's FEK, while any output to be "broadcast"
+	is queued via the master FEK.
+
+FEKNIC	For a master FEK, FEKNIC is the Ethernet "channel" ID. Not used
+	by slave FEKs.
+
+FEKNID	For a master FEK, FEKNID is the Ethernet "portal" ID. Not used
+	by slave FEKs.
+
+FEKNIF	FEKNIF contains the address of the FEK's associated master FEK
+	(a master FEK points to itself).
+
+FEKNIQ	For a master FEK, FEKNIQ is the count of PCBs (buffers) queued to
+	to the Ethernet service layer. Not used by slave FEKs.
+
+FEKNIS	For a master FEK, FEKNIS is the current NODEID "serial number",
+	incremented for each broadcast NODEID. For a slave FEK, FEKNIS
+	is the last received NODEID serial number from the remote ANF
+	node.
+
+FEKNIT	For a master FEK, FEKNIT contains XWD <int>,<tim> where <int> is
+	the current (sliding) interval between consecutive broadcast NODEID
+	messages, and <tim> is the current timer until the next broadcast
+	NODEID message. For a slave FEK, FEKNIT is the time since the last
+	received NODEID from the FEK's associated remote node. All values
+	are in seconds.
+
+
+USING D8EINT
+
+To utilize ANF on the Ethernet, the user must explicitly define the two
+symbols ANFNIP and ANFNIM via MONGEN. If the symbol ANFNIP is not defined,
+then D8EINT will not be loaded with the monitor (COMMON FEK definitions).
+
+If ANFNIP is defined, it is the Ethernet protocol type to be used by ANF.
+If ANFNIP is 0, then ANF will not use the Ethernet (even though D8EINT is
+loaded). This allows the adventurous user to have D8EINT loaded with the
+monitor for playtime experiments (by patching the protocol type value
+into location %NTNIP in NETSER) without having to rebuild the monitor,
+yet still bring the monitor up sans ANF Ethernet. If ANFNIP is non-zero,
+it will be used as the Ethernet protocol type for ANF NCL communications.
+The protocol type is 16 bits in size. Protocol 60-06 (60006 octal) is
+reserved for customer usage, as are multicast addresses AB-00-04-00-xx-xx.
+
+The symbol ANFNIM defines the "xx-xx" part of the multicast address, and
+is also 16 bits wide - but **MUST** be defined as a left-justified integer
+value (bits 00-15), as opposed to ANFNIP which is a right-justified integer
+value (bits 20-35). If ANFNIM is not explicitly defined, it will default
+to the ANFNIP value (shifted to left-most 16 bits).
+
+For example, in the MONGEN dialog for "OCTAL SYMBOL,VALUE", include:
+
+    ANFNIP,<60006B35>	;ANF Ethernet protocol 60-06
+    ANFNIM,<60006B15>	;ANF Ethernet broadcast address AB-00-04-00-60-06
+\
+	SUBTTL	D8EINT parameters varied and sundry
+
+ND	RSBLEN,10		;LENGTH OF RANDOM SCRATCH BLOCK
+;D8EINI  --  ONCE-only D8EINT initialization
+;
+;This routine is called by SYSINI to dynamically build a master FEK for
+;each of the Ethernet "channels". The individual "channels" (or FEKs)
+;will be set online later (FF.ONC FEK dispatch from SYSINI/FEKINI).
+
+D8EINI::SKIPG	%NTNIP##	;GOT AN ANF PROTOCOL TYPE?
+	POPJ	P,		;NOPE, CAN DO NOTHING HERE
+	SE1ENT			;GET INTO SECTION 1 FOR ETHSER
+	PUSHJ	P,D8EGUN	;GET A UN BLOCK (RETURN IN P4)
+	  POPJ	P,		;NO UN? CAN DO NOTHING HERE
+	MOVEI	T1,RSBLEN	;LENGTH OF A RANDOM SCRATCH BLOCK
+	STOR	T1,UNBSZ,(P4)	;SET THAT AS SIZE OF "BUFFER"
+	XMOVEI	T1,D8EBLK	;ADDRESS OF A RANDOM SCRATCH BLOCK
+	STOR	T1,UNBFA,(P4)	;SET AS ADDRESS OF "BUFFER"
+	MOVX	T1,NU.RCL	;FUNCTION: "RETURN CHANNEL LIST"
+	XMOVEI	T2,(P4)		;ADDRESS OF "UN" BLOCK
+	PUSHJ	P,ETHSER##	;ASK ETHSER FOR KNOWN CHANNELS
+	  POPJ	P,		;NO? THEN NO ETHERNET SERVICE HERE!
+	LOAD	T1,UNBSZ,(P4)	;GET RETURNED COUNT (OF CHANNELS)
+	JUMPE	T1,CPOPJ##	;IF NO CHANNELS THEN QUIT NOW
+	CAIE	T1,1		;*** ONLY ALLOW FOR 1 ETHERNET CHANNEL FOR NOW
+	STOPCD	CPOPJ,DEBUG,D8ETME  ;++ TOO MANY ETHERNETS
+
+;Loop buildng a "master" FEK for each Ethernet channel (ETH-0, etc.)
+
+	PUSHJ	P,SAVE4##	;WILL NEED SOME ACS HERE
+	MOVN	P1,T1		;NEGATIVE COUNT OF ETH CHANNELS
+	HRLZ	P1,P1		;AOBJN COUNT
+D8EIN2:	XMOVEI	T1,ET0FEK##	;PROTOTYPE (AND HARDWIRED ETH-0) FEK
+;RDH	TRNN	P1,-1		;IS THIS CHANNEL "0"?
+;RDH	JRST	D8EIN3		;YES, USE PRE-EXISTING FEK THEN
+;RDH	MOVEI	J,ET0FEK##	;USE ET0FEK AS A PROTOTYPE
+;RDH	PUSHJ	P,D8EFGN	;ALLOCATE AN ETHERNET FEK
+;RDH	  POPJ	P,		;CAN'T GO ANY FURTHER HERE
+D8EIN3:	MOVEM	T1,FEKNIF(T1)	;POINT FEK TO ITSELF AS MASTER FEK
+	MOVSI	T2,FK.ETH!FK.ETM;THE "ETHERNET-MASTER-FEK" FLAG(S)
+	IORM	T2,FEKBLK(T1)	;MARK THIS FEK AS AN ETHERNET MASTER
+	MOVE	T2,D8EBLK(P1)	;GET THE ETHSER "CHANNEL" ID
+	MOVEM	T2,FEKNIC(T1)	;AND SAVE IT
+	DMOVE	T2,%NTNIM##	;ANF MULTICAST ADDRESS
+	DMOVEM	T2,FEKNIA(T1)	;SET THAT ADDRESS IN MASTER FEK
+	MOVSI	T2,4		;INITIAL BROADCAST TIMER INTERVAL
+	MOVEM	T2,FEKNIT(T1)	;SET IT UP
+	SETZM	FEKNIS(T1)	;INITIALIZE NODEID SERIAL NUMBER
+;RDH	TRNN	P1,-1		;IS THIS THE PROTOTYPE ETH-0 FEK?
+;RDH	JRST	D8EIN5		;YES, IT'S ALREADY PROPERLY LINKED
+;RDH	HRRZ	T2,ET0FEK##+FEKBLK  ;SPLICE THIS NEWLY-CREATED
+;RDH	HRRM	T1,ET0FEK##+FEKBLK  ;  ETHERNET MASTER FEK INTO THE
+;RDH	HRRM	T2,FEKBLK(T1)	    ;  SYSTEM FEK CHAIN
+D8EIN5:	AOBJN	P1,D8EIN2	;LOOP FOR ALL ETHERNET "CHANNELS"
+	POPJ	P,		;ALL FEKS BUILT
+	SUBTTL	FEK 'Kontroller' service
+
+;D8EDSP - Kontroller dispatch service from NETSER
+;Call is:
+;
+;	MOVEI	T1,<FNC>
+;	MOVE	J, <FEK>
+;	PUSHJ	P,D8EDSP
+;	  return always
+;
+;where <FEK> is the address of the FEK block; and <FNC> is the FEK-level
+;function (FF.???) to be performed.   See the individual functions for
+;the passing of function-specific data.
+;
+;Return is CPOPJ always.
+
+D8EDSP::SE1ENT			;NEED TO BE IN EXTENDED ADDRESSING
+	CAIL	T1,FF.ONC	;RANGE CHECK THE FUNCTION
+	CAILE	T1,FF.DFK	;  CODE AND STOP IF BAD
+	PUSHJ	P,NTDSTP##	;++ ERROR: BAD FUNCTION CODE TO FEK
+	JRST	@D8EDST(T1)	;DISPATCH TO APPROPRIATE ROUTINE
+
+
+;FEK function dispatch table
+
+D8EDST:	IFIW	D8EONC		;FF.ONC - 00 - ONCE-ONLY INITIALIZATION
+	IFIW	D8ESEC		;FF.SEC - 01 - ONCE-A-SECOND CODE
+	IFIW	D8ERDD		;FF.RDD - 02 - POST A RECEIVE BUFFER
+	IFIW	D8EWRT		;FF.WRT - 03 - POST A TRANSMIT BUFFER
+	IFIW	D8ECRS		;FF.CRS - 04 - CRASH THE 'FE'
+	IFIW	D8EDWN		;FF.DWN - 05 - ENTRY WHEN 'FE' CRASHES
+	IFIW	D8EUPP		;FF.UP  - 06 - ENTRY WHEN 'FE' COMES UP
+	IFIW	D8ESTC		;FF.STC - 07 - STATION CONTROL
+	IFIW	D8ECPS		;FF.CPS - 10 - CPU IS GOING TO SLEEP
+	IFIW	D8ECPW		;FF.CPW - 11 - CPU IS WAKING UP
+	IFIW	D8ECFK		;FF.CFK - 12 - CREATE NEW SLAVE FEK
+	IFIW	D8EDFK		;FF.DFK - 13 - DESTROY OLD SLAVE FEK
+;D8EONC  --  ONCE-only FEK initialization
+;
+;D8EINI has already been called and has built the various master FEK
+;blocks for each Ethernet "channel". This code is a per-FEK call to
+;turn on each individual FEK.
+
+D8EONC:	SKIPG	%NTNIP##	;ANF PROTOCOL DEFINED?
+	POPJ	P,		;NO, THEN NO ETHERNET SERVICE
+	PUSHJ	P,D8EGUN	;GET A UN BLOCK
+	  POPJ	P,		;NONE AVAILABLE?
+	MOVE	T1,FEKNIC(J)	;GET ETHERNET "CHANNEL" ID
+	STOR	T1,UNCHN,(P4)	;STORE IN "UN" BLOCK
+	STOR	J,UNUID,(P4)	;STORE FEK ADDRESS ("USER ID") IN "UN" BLOCK
+	XMOVEI	T1,D8EISR	;GET OUR "CALLBACK" (OR ISR) DISPATCH ADDRESS
+	STOR	T1,UNCBA,(P4)	;STORE IN "UN" BLOCK
+	MOVE	T1,%NTNIP##	;GET ANF ETHERNET PROTOCOL TYPE
+	STOR	T1,UNPRO,(P4)	;STORE IN "UN" BLOCK
+	SETONE	UNPAD,(P4)	;ENABLE "PADDING" OF MESSAGES
+	MOVEI	T1,NU.OPN	;FUNCTION: OPEN PORTAL
+	XMOVEI	T2,(P4)		;ADDRESS OF "UN" BLOCK
+	PUSHJ	P,ETHSER##	;ASK ETHSER TO OPEN A PORTAL FOR US
+	  POPJ	P,		;NO???
+	LOAD	T1,UNPID,(P4)	;GET PORTAL ID
+	MOVEM	T1,FEKNID(J)	;SAVE FOR FUTURE CALLS TO ETHSER
+	PUSHJ	P,D8EOOF	;SET FEK ON- OR OFF-LINE
+	  JFCL			;CAN'T FAIL
+	DMOVE	T1,%NTNIM##	;GET ANF ETHERNET MULTICAST ADDRESS
+	DMOVEM	T1,UN.DAD(P4)	;STOR IN "UN" BLOCK
+	MOVEI	T1,NU.EMA	;FUNCTION: ENABLE MULTICAST ADDRESS
+	XMOVEI	T2,(P4)		;ADDRESS OF "UN" BLOCK
+	PUSHJ	P,ETHSER##	;TURN ON MULTICAST ADDRESS RECEPTION
+	  JFCL			;CAN'T FAIL!
+	POPJ	P,		;RETURN WITH FEK ENABLED
+;D8ESEC  --  Once-a-second FEK service
+;
+;Here once-per-second for each of the Ethernet FEKs. Perform the broad-
+;cast NODEID timing for "master" FEKs.
+
+D8ESEC:	SKIPL	T1,FEKBLK(J)	;GET THE FEK FLAGS
+		.CREF	FK.ONL	;CREF REFERENCE TO FEK-ONLINE FLAG
+	POPJ	P,		;FEK IS OFFLINE, FORGET IT
+	TLNN	T1,FK.ETM	;THIS IS A MASTER FEK, ISN'T IT?
+	JRST	D8ESE6		;NO, A SLAVE, CHECK FOR COMMUNICATIONS TIMEOUT
+D8ESE1:	HRRE	T1,FEKNIT(J)	;GET COUNTDOWN TIMER
+	SOJLE	T1,D8ESE3	;REQUEST NODEID BROADCAST IF EXPIRED
+	HRRM	T1,FEKNIT(J)	;SET NEW TIMER VALUE
+	PJRST	NTFSEC##	;AND DO NORMAL NETSER ONCE/SECOND STUFF
+
+D8ESE3:	MOVSI	T2,FK.NID	;THE "NODEID SENT" FLAG
+	TDNN	T2,FEKBLK(J)	;HAVE WE SENT A NODEID?
+	PJRST	NTFSEC##	;NOT YET, LEAVE TIMER(S) ALONE
+	ANDCAM	T2,FEKBLK(J)	;YES, REQUEST ANOTHER NODEID BE SENT
+	HLRZ	T1,FEKNIT(J)	;GET INCREMENTAL TIMER VALUE
+	LSH	T1,1		;SCALE IT UP A BIT,
+	CAMLE	T1,%NTNII##	; BUT PEG IT
+	MOVE	T1,%NTNII##	;  AT [NOMINALLY] A ONE-MINUTE INTERVAL
+	HRLZM	T1,FEKNIT(J)	;STORE NEW INTERVAL
+	PJRST	NTFSEC##	;AND DO NORMAL NETSER ONCE/SECOND STUFF
+
+
+;Here for a slave FEK, make sure we are in "constant" contact with the remote
+;  node. This must be done on a per-FEK (and associated NODEID) basis since
+;  we can't rely on normal NCL traffic (in case multiple Ethernet channels
+;  to the same node ever arise).
+
+D8ESE6:	SOSL	FEKNIT(J)	;DECREMENT TIMER
+	POPJ	P,		;STILL ALIVE, AFTER ALL THESE . . .
+	PJRST	D8EDFK		;TIMED OUT, KILL OFF THE FEK
+;D8ERDD  --  Read request (post a receive buffer)
+;
+;FEKIAD contains a PCB address to be filled with receive data.
+;
+;This function merely gives the buffer to the "FE" service routine to
+;be filled, no actual data is returned by this call.
+;
+; Note:	Unlike other ANF FEKs, this routine actually decouples the input
+;	PCB and gives it to ETHSER to queue, using FEKNIQ as a count of
+;	buffers hiding inside ETHSER. See NETSER's NETRDD routine. This
+;	skulduggery is necessary to keep multiple buffers available such
+;	that the KLNI [probably] won't run out of buffers and lose input
+;	messages . . .
+
+D8ERDD:	AOSE	FEKBSI(J)	;GET THE INPUT INTERLOCK (WE GET HERE FROM
+				;  BOTH UUO AND INTERRUPT LEVEL)
+	POPJ	P,		;IF ALREADY DOING INPUT, EXIT
+	PUSHJ	P,D8EGUN	;GET A UN BLOCK
+	  JRST	D8ERD7		;NONE AVAILABLE, TRY AGAIN LATER
+	SKIPN	T1,FEKIAD(J)	;GOT AN INPUT BUFFER?
+	JRST	D8ERD9		;NO
+	MOVE	T2,FEKBLK(J)	;GET THE FEK FLAGS
+	TLNN	T2,FK.ETM	;ONLY THE MASTER FEK GETS TO DO INPUT
+	STOPCD	D8ERD9,DEBUG,D8ESFI  ;++ SLAVE FEK HAS INPUT BUFFER
+	MOVE	T2,FEKNID(J)	;ETHSER'S PORTAL ID
+	STOR	T2,UNPID,(P4)	;STORE IN "UN" BLOCK
+	STOR	T1,UNRID,(P4)	;STORE PCB ADDRESS IN "UN" BLOCK RID FIELD
+;RDH	SETZRO	UNBSZ,(P4)	;NO BYTE COUNT MEANS MSD-STYLE CALL
+;RDH	XMOVEI	T2,PCBMS1(T1)	;ADDRESS OF MSD PORTION OF PCB
+;RDH	STOR	T2,UNBFA,(P4)	;STORE IN "UN" BLOCK
+;RDH	SETZM	PCBNXX(T1)	;NO SECOND MSD HERE (STUPID KLNI!!!)
+	MOVE	T2,PCBCTR(T1)	;COUNT OF DATA BYTES IN BUFFER
+	ADDI	T2,4		;ALLOW FOR STUPID CRC BYTES (*!!$!*#!!)
+				; BUT *NOT* THE OTHER TWO COUNT BYTES
+				; YEAH, THIS LOOKS REALLY ODD, BUT NETSER
+				; CAREFULLY ALLOCATES A BUFFER THAT IS
+				; SECRETLY 6 BYTES LARGER THAN MSGMAX . . .
+	STOR	T2,UNBSZ,(P4)	;STORE IN "UN" BLOCK
+	HLLZ	T2,PCBPTR(T1)	;NOW MUST CONCOCT A TWO-WORD GLOBAL
+	HRRZ	T3,PCBPTR(T1)	; BYTE POINTER FOR ETHSER
+	TLO	T2,(1B12)	; OTHERWISE IT GOES DING DING DING
+	DMOVEM	T2,UN.BFA(P4)	;STORE IN "UN" BLOCK
+	MOVX	T2,UNA.EV	;THE DATA BUFFER IS IN EXEC VIRTUAL MEMORY
+	STOR	T2,UNADS,(P4)	;STORE THAT IN "UN" BLOCK
+	MOVEI	T1,NU.RCV	;FUNCTION: POST RECEIVE BUFFER
+	XMOVEI	T2,(P4)		;ADDRESS OF "UN" BLOCK
+	PUSHJ	P,ETHSER##	;QUEUE UP RECEIVE BUFFER
+	  JRST	D8ERD4		;ERROR? GO CHECK IT OUT
+	HRRZ	T1,FEKIAD(J)	;RETRIEVE ADDRESS OF PCB
+	HRRZ	T2,PCBBLK(T1)	;ADDRESS OF NEXT PCB (MUST BE 0)
+	CAIE	T2,0		;JUST TO MAKE SURE IS REALLY TRULY 0
+	PUSHJ	P,NTDSTP##	;THIS IS A NO-NO
+	MOVEM	T2,FEKIAD(J)	;INDICATE PCB GIVEN TO ETHSER
+	AOS	FEKNIQ(J)	;COUNT UP BUFFERS QUEUED TO ETHSER
+	JRST	D8ERD9		;ALL DONE HERE
+;Here when ETHSER rejects our attempt to queue up an input buffer
+
+D8ERD4:	CAIE	T1,UNRES%	;NO RESOURCES TO DEAL WITH BUFFER?
+	CAIN	T1,UNPWS%	;OR PORTAL IN WRONG STATE (IN TRANSISTION)?
+	JRST	D8ERD7		;YEAH, FLAG TO TRY AGAIN LATER
+	CAIN	T1,UNRAB%	;RECEIVE ABORTED?
+	JRST	D8ERD7		;YEAH, TRY AGAIN LATER
+	STOPCD	CPOPJ,DEBUG,D8ERFU  ;++ "RDD" REQUEST FOULED UP
+				; NOTE WELL: THIS LEAVES FEKBSI SET!!!!
+				; EFFECTIVELY "HANGING" THIS FEK . . .
+				; BUT AT LEAST IT SHOULD CAUSE NO MORE TROUBLE
+
+
+;No resources for input buffer, try again later
+
+D8ERD7:	MOVSI	T1,FK.STI	;THE "KICK ME" FEK FLAG
+	IORM	T1,FEKBLK(J)	;ASK FOR CLOCK-DRIVEN SERVICE LATER ON
+D8ERD9:	SETOM	FEKBSI(J)	;INPUT NOW IDLE
+	POPJ	P,		;RETURN
+;D8EWRT  --  Write request (post a transmit buffer)
+;
+;FEKOAD contains a PCB address chain to be transmitted (in order of
+;entry on the PCB chain); FEKOCT incremented by the caller.
+;
+;This function merely "queues" the PCB(s) from FEKOAD to the "FE"
+;service routine.
+
+D8EWRT:	AOSE	FEKBSO(J)	;GET THE "OUTPUT BUSY" INTERLOCK
+	POPJ	P,		;  IF ALREADY DOING OUTPUT, EXIT NOW
+	PUSHJ	P,D8EGUN	;GET A UN BLOCK
+	  JRST	D8EWR7		;NONE AVAILABLE, TRY AGAIN LATER
+D8EWR0:	NETOFF			;KEEP THE PCB CHAIN(S) CLEAN
+	SKIPG	FEKOCT(J)	;CHECK IF ANYTHING TO DO
+	JRST	D8EWR8		;IF NO OUTPUT MSGS, SET OUTPUT IDLE
+	SOS	FEKOCT(J)	;COUNT DOWN PCB'S ON THE QUEUE
+	HRRZ	T1,FEKOAD(J)	;FIRST OUTPUT PCB ON QUEUE
+	HRRZ	T2,PCBBLK(T1)	;NEXT (IF ANY) PCB ON THE CHAIN
+	HRRZM	T2,FEKOAD(J)	;BECOMES NEW FIRST PCB ON OUTPUT QUEUE
+	NETON			;SAFE AGAIN
+	HLLZS	PCBBLK(T1)	;DELINK THIS PCB FROM THE QUEUE
+	HRLM	J,PCBFEK(T1)	;REMEMBER FROM WHICH FEK CAME THIS PCB
+	MOVE	T4,FEKNIF(J)	;GET MASTER FEK ADDRESS
+	MOVE	T2,FEKNID(T4)	;ETHSER'S PORTAL ID VALUE (FROM MASTER)
+	STOR	T2,UNPID,(P4)	;STORE IN "UN" BLOCK
+	DMOVE	T2,FEKNIA(J)	;REMOTE ETHERNET NODE ADDRESS
+				; (OR MULTICAST ADDRESS IF MASTER FEK)
+	DMOVEM	T2,UN.DAD(P4)	;STORE IN "UN" BLOCK
+	STOR	T1,UNRID,(P4)	;STORE PCB ADDRESS IN "UN" BLOCK RID FIELD
+;RDH	SETZRO	UNBSZ,(P4)	;NO BYTE COUNT MEANS MSD-STYLE CALL
+;RDH	XMOVEI	T2,PCBMS1(T1)	;ADDRESS OF MSD PORTION OF PCB
+;RDH	STOR	T2,UNBFA,(P4)	;STORE IN "UN" BLOCK
+;RDH	SETZM	PCBNXX(T1)	;NO SECOND MSD HERE (STUPID KLNI!!!)
+	MOVE	T2,PCBCTR(T1)	;COUNT OF DATA BYTES IN BUFFER
+	STOR	T2,UNBSZ,(P4)	;STORE IN "UN" BLOCK
+	HLLZ	T2,PCBPTR(T1)	;NOW MUST CONCOCT A TWO-WORD GLOBAL
+	HRRZ	T3,PCBPTR(T1)	; BYTE POINTER FOR ETHSER
+	TLO	T2,(1B12)	; OTHERWISE IT GOES DING DING DING
+	DMOVEM	T2,UN.BFA(P4)	;STORE IN "UN" BLOCK
+	MOVX	T2,UNA.EV	;THE DATA BUFFER IS IN EXEC VIRTUAL MEMORY
+	STOR	T2,UNADS,(P4)	;STORE THAT IN "UN" BLOCK
+	MOVEI	T1,NU.XMT	;FUNCTION: SEND DATAGRAM
+	XMOVEI	T2,(P4)		;ADDRESS OF "UN" BLOCK
+	PUSHJ	P,ETHSER##	;GIVE BUFFER TO ETHERNET SERVICE
+	  JRST	D8EWR4		;FAILED - GO CHECK IT OUT
+	JRST	D8EWR0		;FLUSH ALL OUTPUT INTO ETHSER
+;Here on ETHSER's rejection of our output request
+
+D8EWR4:	LOAD	T3,UNRID,(P4)	;OOPS, RETRIEVE ERRANT PCB
+	NETOFF			;NO INTERRUPTS PLEASE
+	HRRZ	T4,FEKOAD(J)	;GET HEAD OF STILL-TO-BE-OUTPUT PCB CHAIN
+	HRRZM	T3,FEKOAD(J)	;OLD PCB GETS PUT BACK AT THE START
+	HRRM	T4,PCBBLK(T3)	; OF THE FEK'S OUTPUT QUEUE
+	AOS	FEKOCT(J)	;ONE MORE PCB ON THE OUTPUT QUEUE
+	NETON			;SAFE AGAIN
+	CAIE	T1,UNRES%	;NO RESOURCES?
+	CAIN	T1,UNPWS%	;OR PORTAL IN WRONG STATE (IN TRANSISTION)?
+	PJRST	D8EWR7		;YES, FLAG TO TRY AGAIN LATER
+	STOPCD	CPOPJ,DEBUG,D8EWFU  ;++ "WRT" REQUEST FOULED UP
+				; NOTE WELL: THIS LEAVES FEKBSO SET!!!!
+				; EFFECTIVELY "HANGING" THIS FEK . . .
+				; BUT AT LEAST IT SHOULD CAUSE NO MORE TROUBLE
+
+
+;Output "blocked", try again later
+
+D8EWR7:	MOVSI	T1,FK.STO	;THE "KICK ME" FEK FLAG
+	IORM	T1,FEKBLK(J)	;ASK FOR CLOCK-DRIVEN SERVICE LATER ON
+	JRST	D8EWR9		;SET FEK OUTPUT IDLE AND RETURN
+
+D8EWR8:	NETON			;RE-ENABLE INTERRUPTS
+D8EWR9:	SETOM	FEKBSO(J)	;SET OUTPUT IDLE
+	POPJ	P,		;AND RETURN
+;D8ECRS  --  Request the "FE" to shut down ('crash')
+;
+;D8ECRS is called by NETSER to forcibly terminate (i.e., shut down
+;or crash) the "FE".
+;
+;The question remains of how we decide to "start it up" again...
+
+D8ECRS:	PUSHJ	P,NTDSTP##	;++NULL
+
+
+
+;D8EDWN  --  The "FE" has gone down
+;
+;This function is not used (rather ETHSER dispatches via D8EISR/NU.RCI)
+
+D8EDWN:	PUSHJ	P,NTDSTP##	;++NULL
+
+
+
+;D8EUPP  --  The "FE" is up
+;
+;This function is not used (rather ETHSER dispatches via D8EISR/NU.RCI)
+
+D8EUPP:	PUSHJ	P,NTDSTP##	;++NULL
+
+
+
+;D8ESTC  --  Station control function
+;
+;This function is not supported (ergo crash if get here)
+
+D8ESTC:	PUSHJ	P,NTDSTP	;++NULL
+
+
+
+;D8ECPS  --  Take a nap (cpu is going to sleep)
+;
+;This function not implemented.
+
+D8ECPS:	POPJ	P,		;DON'T WORRY ABOUT IT
+
+
+
+;D8ECPW  --  Time to wake up (cpu awakened)
+;
+;This function not implemented.
+
+D8ECPW:	POPJ	P,		;DON'T WORRY ABOUT IT
+;D8ECFK  --  Create new slave FEK (new Ethernet NCL node)
+;
+;D8ECFK called when a NODEID has been received (from the master FEK)
+;for a new node. Master FEK address in J.
+;
+;Returns new slave FEK address in T1 (or 0 if couldn't create a new
+;FEK block).
+
+D8ECFK:	PUSHJ	P,D8EFGN	;CREATE A NEW FEK BLOCK
+	JRST	[SETZ	T1,		;CAN'T, FLAG FAILURE
+		POPJ	P,]		;AND RETURN NOW
+	MOVSI	T2,FK.NID	;THE "NODEID-SENT" FLAG
+	IORM	T2,FEKBLK(T1)	;ALWAYS SET IN SLAVES (ONLY MASTER DOES NODEIDS)
+	MOVSI	T2,FK.ONL	;THE "ON-LINE" FEK FLAG
+	TDNE	T2,FEKBLK(J)	;IS THE MASTER ON LINE?
+	IORM	T2,FEKBLK(T1)	;YES, THEN SO IS THE SLAVE
+	HLLZ	T2,FEKCST(J)	;GET MASTER COST
+	HLLM	T2,FEKCST(T1)	;SET AS COST TO THAT SLAVE
+	POPJ	P,		;RETURN WITH T1/FEK
+
+
+
+;D8EDFK  --  Destroy old slave FEK
+;
+;Called with slave FEK address in J
+
+D8EDFK:	NETOFF			;NO INTERRUPTS WHILST DIDDLING FEK CHAIN
+	MOVE	T2,FEKNIF(J)	;START WITH SLAVE'S MASTER FEK ADDRESS
+D8EDF1:	MOVE	T1,T2		;SAVE PRECEDING FEK ADDRESS
+	HRRZ	T2,FEKBLK(T2)	;LINK TO NEXT FEK IN CHAIN
+	CAIN	T2,0		;BAD NEWS IF CAN'T FIND SLAVE FEK IN FEK CHAIN
+	STOPCD	D8EDF9,DEBUG,D8EFNC  ;++ SLAVE FEK NOT IN FEK CHAIN
+	CAME	T2,J		;IS THIS THE FEK TO BE DELETED?
+	JRST	D8EDF1		;NO
+D8EDF3:	HRRZ	T3,FEKBLK(T2)	;ADDRESS OF NEXT FEK IN CHAIN
+	HRRM	T3,FEKBLK(T1)	;SPLICE OUT OLD SLAVE FEK
+	NETON			;SAFE AGAIN
+	PUSH	P,T1		;SAVE ADDRESS OF PRECEDING FEK
+;	MOVSI	T1,FK.ONL	;THE FEK-IS-ONLINE FLAG
+;	ANDCAM	T1,FEKBLK(J)	;THE FEK IS NO LONGER ONLINE
+	MOVEI	T1,FI.DWN	;THIS FEK IS DOWN FER SUR
+	PUSHJ	P,FEKINT##	;TELL NETSER TO RECOMPUTE TOPOLOGY
+	MOVEI	T1,FEKLEN	;LENGTH OF FEK BLOCK
+	MOVE	T2,J		;ADDRESS OF FEK BLOCK
+	PUSHJ	P,GIVZWD##	;DEALLOCATE FEK BLOCK MEMORY
+	PJRST	JPOPJ##		;RETURN, J/PRECEDING FEK ADDRESS
+				; (E.G., FOR NETSER/FEK ONCE/SECOND, ETC.)
+
+
+D8EDF9:	NETON			;CLEAR NETSER INTERLOCK
+	POPJ	P,		;AND RETURN
+	SUBTTL	FEK "Interrupt" service
+
+;D8EISR - Interrupt service dispatch from ETHSER
+;Call is:
+;
+;	MOVEI	T1,<FNC>
+;	MOVX	T2,<UNB>
+;	MOVX	T3,<STS>
+;	PUSHJ	P,D8EISR
+;	  return
+;
+;Where <FNC> is the ISR (or 'callback' in Etherese) function; <UNB>
+;is the ETHSER-supplied 'UN' argument block; and <STS> is the function
+;status (if any).
+;
+;Return is CPOPJ always.
+
+D8EISR:	PUSHJ	P,SAVQ##	;PROTECT ETHSER'S REGS
+	PUSHJ	P,SAVJW##	;...
+	CAIL	T1,NU.MIN	;RANGE CHECK THE FUNCTION
+	CAILE	T1,NU.MAX	;  CODE AND STOP IF BAD
+D8EIS0:	STOPCD	.,STOP,D8EISF	;++ BAD ISR FUNCTION CODE
+	JRST	@D8EIST-NU.MIN(T1) ;DISPATCH ON ISR ('CALLBACK') FUNCTION
+
+
+;ISR function dispatch table
+
+DEFINE	DISP(CODE,ADDR),<
+IF1,<IFN <CODE-NU.MIN-<.-D8EIST>>,<PRINTX ?Table D8EIST entry CODE is out of order>>
+	IFIW	ADDR		;CODE
+>; END DEFINE DISP
+
+D8EIST:	DISP	NU.OPN,D8EIS0	;NU.OPN - 01 - UNDEFINED
+	DISP	NU.CLO,D8ECLO	;NU.CLO - 02 - PORTAL CLOSED
+	DISP	NU.RCV,D8ERCV	;NU.RCV - 03 - DATAGRAM RECEIVED
+	DISP	NU.XMT,D8EXMT	;NU.XMT - 04 - DATAGRAM TRANSMITTED
+	DISP	NU.EMA,D8EIS0	;NU.EMA - 05 - MULTICAST ADDRESS ENABLED
+	DISP	NU.DMA,D8EIS0	;NU.DMA - 06 - MULTICAST ADDRESS DISABLED
+
+	DISP	NU.RCL,D8EIS0	;NU.RCL - 07 - READ CHANNEL LIST
+	DISP	NU.RCI,D8ERST	;NU.RCI - 10 - CHANNEL STATE CHANGE
+	DISP	NU.RCC,D8EIS0	;NU.RCC - 11 - READ CHANNEL COUNTERS
+	DISP	NU.SCA,D8ESCA	;NU.SCA - 12 - CHANNEL ADDRESS CHANGED
+
+	DISP	NU.RPL,D8EIS0	;NU.RPL - 13 - READ PORTAL LIST
+	DISP	NU.RPI,D8EIS0	;NU.RPI - 14 - READ PORTAL INFO
+	DISP	NU.RPC,D8EIS0	;NU.RPC - 15 - READ PORTAL COUNTERS
+
+	DISP	NU.RKL,D8EIS0	;NU.RKL - 16 - READ KONTROLLER LIST
+	DISP	NU.RKI,D8EIS0	;NU.RKI - 17 - READ KONTROLLER INFO
+	DISP	NU.RKC,D8EIS0	;NU.RKC - 20 - READ KONTROLLER COUNTERS
+
+IF1,<IFN <NU.MAX-NU.MIN+1-<.-D8EIST>>,<PRINTX ?Table D8EIST is missing entries>>
+;D8ECLO  --  ETHSER 'Portal' closed
+;
+;This function handles the ISR-level notification of the FE's having
+;'CLOSEd' the ethernet 'Portal' (i.e., the FE is shut down).
+
+D8ECLO:	PUSHJ	P,NTDSTP##	;++ WE DON'T EVER CLOSE THE PORTAL
+;D8ERCV  --  Message received
+;
+;D8ERCV is the ISR-level receipient of a successfully-filled (and
+;previously "posted" via D8ERDD) receive buffer from the ethernet.
+
+D8ERCV:	LOAD	T1,UNRID,(T2)	;RETRIEVE PCB ADDRESS
+	LOAD	J,UNUID,(T2)	;AND MASTER FEK ADDRESS
+	MOVEM	T1,FEKIDN(J)	;SET RECEIVED PCB ADDRESS (NI-FEK ONLY)
+	SOS	FEKNIQ(J)	;ONE FEWER PCB QUEUED IN ETHSER
+	SKIPE	T3		;ANY ERRORS?
+	TDZA	T3,T3		;YES, SET ZERO BYTE COUNT AND CONTINUE
+	LOAD	T3,UNBSZ,(T2)	;GET RECEIVED BYTE COUNT
+	MOVEM	T3,PCBCTR(T1)	;SAVE IT WITH THE PCB
+	DMOVE	T3,UN.BFA(T2)	;GET ETHSER'S RETURNED BYTE POINTER
+	TLZE	T3,(1B12)	;CLEAR 2-WORD FORMAT FLAG
+	HRR	T3,T4		;AND MAKE IT A ONE-WORD LOCAL BYTE POINTER
+	MOVEM	T3,PCBPTR(T1)	;SAVE IT WITH THE PCB
+				; AS OF THIS WRITING, THE KLNI LEAVES THE
+				; TWO-BYTE COUNT FIELD IN THE DATA BUFFER,
+				; AND ETHSER INCREMENTS THE POINTER PAST
+				; THE TWO BYTES, BUT THAT MAY CHANGE SOME-
+				; DAY, SO WE MUST PICK UP ETHSER'S BYTE
+				; POINTER RATHER THAN TRUSTING THE ORIGINAL
+				; PCB BYTE POINTER . . .
+	DMOVE	T3,UN.SAD(T2)	;GET SOURCE ETHERNET NODE ADDRESS
+	DMOVEM	T3,PCBNIA(T1)	;SAVE IT WITH THE PCB
+	MOVEI	T1,FI.IDN	;FUNCTION: INPUT DONE (FEKIDN)
+	PJRST	FEKINT##	;GIVE THE PCB TO NETSER
+;D8EXMT  --  Message transmitted
+;
+;D8EXMT is the ISR-level receipient of a successfully-transmitted
+;(and previously "queued" via D8EWRT) transmit buffer.
+
+D8EXMT:	LOAD	T1,UNRID,(T2)	;RETRIEVE ADDRESS OF PCB
+	HLRZ	J,PCBFEK(T1)	;RETRIEVE ORIGINATING FEK'S ADDRESS
+	MOVEM	T1,FEKODN(J)	;SET OUTPUT-DONE PCB ADDRESS
+	MOVEI	T1,FI.ODN	;FUNCTION: OUTPUT-DONE
+	PJRST	FEKINT##	;RETURN BUFFER TO NETSER
+;D8ERST  --  Ethernet channel ("FE") state change
+;
+;D8ERST is called by ETHSER whenever the 'Portal' (the logical "FE")
+;changes state (i.e., goes online/offline/etc).
+
+D8ERST:	LOAD	J,UNUID,(T2)	;RETRIEVE ADDRESS OF ASSOCIATED MASTER FEK
+	PUSHJ	P,D8EOOF	;CHECK/SET ON/OFF LINE FEK STATUS
+	  PUSHJ	P,NTDSTP##	;CAN'T (WELL, SHOULDN'T) HAPPEN
+	JUMPE	T1,CPOPJ##	;IF NOTHING EXCITING HAPPENED, IGNORE IT
+
+;FEK changed state, tell NETSER as appropriate
+
+D8ERS1:	PUSHJ	P,SAVE4##	;NEED SOME NETSER-PRESERVED ACS HERE
+	MOVE	P1,J		;SAVE A COPY OF THE MASTER FEK ADDRESS
+	TDNN	T1,FEKBLK(J)	;IS MASTER FEK NOW ONLINE?
+	JRST	D8ERS6		;OFFLINE, SET ALL SLAVES OFFLINE ALSO
+
+
+;Master FEK is now online
+
+D8ERS2:	MOVSI	T2,4		;INITIAL BROADCAST TIMER INTERVAL
+	MOVEM	T2,FEKNIT(J)	;RESET BROADCAST INTERVAL TIMER
+	SETZM	FEKNIS(J)	;REINITIALIZE NODEID SERIAL NUMBER
+	POPJ	P,		;NOTHING MORE TO DO FOR NOW
+
+
+;Master FEK is offline, set all slaves offline also
+
+D8ERS6:	MOVE	J,P1		;START SEARCHING AT THIS MASTER FEK
+D8ERS7:	HRRZ	J,FEKBLK(J)	;NEXT POTENTIAL SLAVE FEK
+	JUMPE	J,D8ERS8	;EXIT WHEN NO MORE SLAVE FEKS
+	CAME	P1,FEKNIF(J)	;SLAVE BELONG TO THIS MASTER?
+	JRST	D8ERS7		;NO, SKIP IT
+	PUSHJ	P,D8EDFK	;DESTROY DEAD SLAVE FEK
+				; (THIS TELLS NETSER TO BLAST TOPOLOGY)
+	JRST	D8ERS7		;LOOP FOR ALL SLAVES ON THIS MASTER
+
+D8ERS8:	MOVE	J,P1		;RESTORE MASTER FEK ADDRESS
+	MOVEI	T1,FI.DWN	;FUNCTION: FEK OFFLINE
+	PJRST	FEKINT##	;TELL NETSER MASTER FEK IS NOW OFFLINE
+;D8ESCA  --  Ethernet channel address changed
+;
+;D8ESCA is called by ETHSER whenever the 'Channel' address associated
+;with a 'Portal' changes.
+
+D8ESCA:	POPJ	P,		;DUH?
+	SUBTTL	Miscelleaneous support routines
+
+;D8EFGN  --  Create a new Ethernet FEK
+;Call is:
+;
+;	MOVE	J,<MFEK>
+;	PUSHJ	P,D8EFGN
+;	  Error return
+;	Normal return
+;
+;Where <MFEK> is the address of the "master" (or prototype) FEK from which
+;the new FEK is to be modeled (FEKDSP, FEKUNI, FEKNIF).
+;
+;On error return there was insufficient ANF free core to allocate for
+;the FEK block.
+;
+;On normal return, T1 contains address of newly-created FEK in CLNFEK (i.e.,
+;pristine) condition, and linked into the system FEK chain.
+
+D8EFGN:	MOVEI	T2,FEKLEN	;LENGTH OF ETHERNET-STYLE FEK BLOCK
+	PUSHJ	P,GETZWD##	;GET SOME ANF FREE CORE
+	  POPJ	P,		;NO FREE CORE, NO FEK BLOCK
+	PUSH	P,J		;SAVE MASTER FEK INDEX
+	MOVE	J,T1		;SET ADDRESS OF NEWLY-CREATED FEK
+	PUSHJ	P,NTFONC##	;"ONCE-ONLY" THE FEK
+	MOVE	T1,J		;REPOSITION NEWLY-CREATED FEK ADDRESS
+	POP	P,J		;AND RESTORE MASTER/PROTOTYPE FEK ADDRESS
+	MOVSI	T2,FK.ETH	;THE "ETHERNET-FEK" FLAG
+	IORM	T2,FEKBLK(T1)	;PUT OUR BRAND ON THIS LITTLE FEKKY
+	MOVE	T2,FEKDSP(J)	;PROTOTYPE "DISP" WORD
+	MOVEM	T2,FEKDSP(T1)	;SET FEK DISPATCH SERVICE VECTOR
+	MOVE	T2,FEKUNI(J)	;PROTOTYPE CPU/UNIT WORD
+	MOVEM	T2,FEKUNI(T1)	;SET FEK CPU AND UNIT WORD
+	SETZM	FEKNIA(T1)	;NO ETHERNET REMOTE ADDRESS YET
+	SETZM	FEKNIA+1(T1)	;NO ETHERNET REMOTE ADDRESS YET
+	SETZM	FEKNIC(T1)	;NO ETHERNET CHANNEL ID YET
+	SETZM	FEKNID(T1)	;NO ETHERNET PORTAL ID YET
+	MOVEM	J,FEKNIF(T1)	;SET MASTER/PROTOTYPE FEK ADDRESS
+	SETZM	FEKNIS(T1)	;NO ETHERNET NODEID SERIAL NUMBER
+	MOVE	T2,%NTNIJ##	;ETHERNET SLAVE FEK KEEP-ALIVE TIMER
+	MOVEM	T2,FEKNIT(T1)	;INITIALIZE KEEP-ALIVE FOR THIS FEK
+	NETOFF			;PREVENT RACES
+	HRRZ	T2,FEKBLK(J)	;ADDRESS OF REST OF FEK CHAIN
+	HRRM	T1,FEKBLK(J)	;SPLICE NEWLY-CREATED FEK INTO
+	HRRM	T2,FEKBLK(T1)	;SYSTEM FEK CHAIN
+	NETON			;OK TO RACE NOW
+	JRST	CPOPJ1##	;SUCCESS RETURN WITH T1/FEK
+;D8EGUN - Get a "UN" block
+;Call is:
+;
+;	PUSHJ	P,D8EGUN
+;	  Error return
+;	Normal return
+;
+;On error return no UN blocks are available (and no network free core
+;is available to make a new UN block).
+;
+;On normal return register P4 contains a UN block address.
+;
+;D8EGUN co-routines back to its caller, and automatically frees up the
+;UN block on caller's exit.
+;
+;Uses T1.
+
+D8EGUN:	PUSH	P,P4		;SAVE CALLER'S P4 FOR LATER RESTORATION
+	NETOFF			;MUST DO THIS INTERLOCKED
+	SKIPN	P4,D8EUNL	;GOT A FREE UN BLOCK?
+	JRST	D8EGU4		;NO, MUST ALLOCATE ONE
+	MOVE	T1,(P4)		;YES, ADDRESS OF NEXT UN BLOCK IN FREE LIST
+	MOVEM	T1,D8EUNL	;IT BECOMES THE NEW FIRST FREE
+	NETON			;SAFE NOW
+D8EGU1:	SETZM	(P4)		;CLEAR FIRST WORD OF UN BLOCK
+	MOVSI	T1,(P4)		;CONCOCT
+	HRRI	T1,1(P4)	; A BLT POINTER TO
+	BLT	T1,UN.LEN-1(P4)	;  CLEAR OUT THE UN BLOCK
+	AOS	-1(P)		;"SKIP"
+	PUSHJ	P,@-1(P)	; CO-ROUTINE BACK TO OUR CALLER
+	  CAIA			;NON-SKIP RETURN TO CALLER'S CALLER
+	AOS	-2(P)		;SKIP RETURN TO CALLER'S CALLER
+	NETOFF			;MUST INTERLOCK AGAIN
+	EXCH	P4,D8EUNL	;PUT THIS UN BLOCK AT HEAD OF CHAIN
+	MOVEM	P4,@D8EUNL	;AND LINK REST OF CHAIN TO NEW FIRST FREE
+	NETON			;SAFE AGAIN
+	POP	P,P4		;RESTORE CALLER'S P4
+	POP	P,(P)		;POP JUNK ADDRESS
+	POPJ	P,		;RETURN TO CALLER'S CALLER
+
+;HERE TO ALLOCATE A NEW UN BLOCK
+
+D8EGU4:	NETON			;RESTORE INTERRUPTABILITY
+	PUSHJ	P,D8EGUX	;GET A CORE BLOCK
+	  JRST	P4POPJ##	;RESTORE P4 AND ABORT
+	JRST	D8EGU1		;RETURN UN BLOCK TO CALLER
+
+D8EGUX:	PUSHJ	P,SAVT##	;SAVE CALLER'S TEAS
+	MOVEI	T2,UN.LEN	;LENGTH OF A UN BLOCK
+	PUSHJ	P,GETZWD##	;ASK NETSER FOR A HUNK OF MEMORY
+	  POPJ	P,		;NONE AVAILABLE
+	MOVE	P4,T1		;GOT ONE!
+	JRST	CPOPJ1##	;SUCCESSFUL RETURN (RESTORING THE TEAS)
+;D8EOOF - Set FEK ON- or OFF-LINE
+;Call is:
+;
+;	MOVX	T2,<UN>
+;	PUSHJ	P,D8EOOF
+;	  Error return
+;	Normal return
+;
+;Where <UN> is the address of the "UN" block to/from ETHSER.
+;
+;Error return is not used.
+;
+;On normal return the FEK block is "ON-" or "OFF-LINE" based on the
+;state of the "RUN" bit in the UN status word. T1 contains the FEK
+;status-change flag, 0 if no change in FEK status, FK.ONL if the FEK
+;changed ON/OFF status.
+
+D8EOOF:	MOVSI	T1,FK.ONL	;THE FEK "ON-LINE" FLAG
+	TMNN	UNRUN,(T2)	;IS "RUN" BIT SET IN UN STATUS FIELD?
+	JRST	D8EOO3		;NO, "OFF-LINE"
+	TDNE	T1,FEKBLK(J)	;YES, "ON-LINE", WAS FEK ALREADY ON-LINE?
+	JRST	D8EOO5		;NO CHANGE, JUST RETURN
+	IORM	T1,FEKBLK(J)	;WAS OFF-LINE, FLAG ON-LINE
+	JRST	CPOPJ1##	;AND TAKE SUCCESSFUL RETURN WITH CHANGE FLAG
+
+D8EOO3:	TDNN	T1,FEKBLK(J)	;WAS FEK ALREADY OFF-LINE?
+	JRST	D8EOO5		;NO CHANGE, JUST RETURN
+	ANDCAM	T1,FEKBLK(J)	;WAS ON-LINE, FLAG OFF-LINE
+	JRST	CPOPJ1##	;AND TAKE SUCCESSFUL RETURN WITH CHANGE FLAG
+
+D8EOO5:	SETZ	T1,		;FLAG NO CHANGE IN FEK STATUS
+	JRST	CPOPJ1##	;AND TAKE SUCCESSFUL RETURN
+	$LIT
+
+	$LOW
+
+D8EUNL:	BLOCK	1		;FIRST FREE "UN" BLOCK
+
+D8EBLK:	BLOCK	RSBLEN		;RANDOM SCRATCH BLOCK
+
+D8EEND::!END
+

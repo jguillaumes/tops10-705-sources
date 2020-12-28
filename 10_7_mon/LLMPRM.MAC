@@ -1,0 +1,163 @@
+	UNIVERSAL LLMPRM - LLMOP PARAMETERS
+	SUBTTL	DOF	10-SEP-85
+
+	SEARCH	S,MACSYM
+	SALL
+
+;THIS FILE CONTAINS DEFINITIONS RELATED TO LLMOP SERVICE.
+
+;THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED
+;  OR COPIED ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE.
+;
+;COPYRIGHT (c) DIGITAL EQUIPMENT CORPORATION 1985,1986,1988.
+;ALL RIGHTS RESERVED.
+
+.CPYRT<1985,1988>,.
+
+
+	XP	VLLMPR,3	;LLMPRM VERSION NUMBER
+
+	SUBTTL	.LLMOP FUNCTION CODE DEFINITIONS
+
+;LLMOP. Function Code Definitions
+
+	.LLMIN==^D0		;Low fence
+	.ELDIR==^D0		;Ethernet Loop Direct
+	.ELAST==^D1		;Ethernet Loop Assisted
+	.ELRPY==^D2		;Ethernet Loop Read Reply
+	.ELAIC==^D3		;Ethernet Loop Assign Interrupt Channel
+	.ELABT==^D4		;Ethernet Loop Abort
+	.ELSTS==^D5		;Ethernet Loop Request Status
+	.RCRID==^D6		;Remote Console Read Identity
+	.RCRCT==^D7		;Remote Console Read Counters
+	.RCIDS==^D8		;Remote Console Identify Self
+	.RCRBT==^D9 		;Remote Console Remote Boot
+	.RCRPY==^D10		;Remote Console Read Reply
+	.RCRSV==^D11		;Reserve Remote Console
+	.RCREL==^D12		;Release Remote Console
+	.RCSND==^D13		;Send Console Command
+	.RCPOL==^D14		;Console Response Poll
+	.RCAIC==^D15		;Remote Console Assign Interrupt Channel
+	.RCABT==^D16		;Remote Console Abort Request
+	.RCSTS==^D17		;Remote Console Request Status
+	.RCADR==^D18		;Obtain Channel Addresses
+	.LLMAX==^D18		;High fence
+	SUBTTL	.LLMOP ARGUMENT BLOCK DEFINITIONS
+
+;LLMOP. Argument Block Definitions
+
+;Common prefix for all functions
+
+	.LMCID==0		;Channel Id and Flags
+		LM%MRF==MASKB(0,0) ;More Replies Flag
+
+				;For .RCSND only
+		LM%CBF==MASKB(16,16) ;Command Break Flag
+		LM%MNO==MASKB(17,17) ;Message Number
+		LM%CCF==LM%MNO!LM%CBF ;Console Command Control Flags
+
+				;For .RCPOL only
+		LM%RDL==MASKB(7,7) ;Receive Data Lost Flag
+		LM%RDO==MASKB(15,15) ;Response Data Lost Flag
+		LM%CDL==MASKB(16,16) ;Command Data Lost Flag
+		LM%RCF==LM%MNO!LM%RDO!LM%CDL ;Console Response Control Flags
+
+		LM%CID==MASKB(34,35) ;Channel-id
+
+;Suffix for .RCRID,.RCRCT,.RCIDS,.RCRBT,
+;	    .RCRSV,.RCREL,.RCSND,.RCPOL,
+;	    .RCRPY,.ELDIR,.ELAST,.ELRPY
+
+	.LMDST==1		;Destination Address
+	.LMSRC==.LMDST		;Source Address for .ELRPY and .RCRPY only 
+		LM%MCA==MASKB(7,7) ;Multicast Address Bit
+		LM%AB0==MASKB(0,7) ;Address Byte 0
+		LM%AB1==MASKB(8,15) ;Address Byte 1
+		LM%AB2==MASKB(16,23) ;Address Byte 2
+		LM%AB3==MASKB(24,31) ;Address Byte 3
+		LM%AB4==LM%AB0	;Address Byte 4
+		LM%AB5==LM%AB1	;Address Byte 5
+
+;Suffix for .ELSTS,.RCSTS
+
+	.LMSTF==1		;Request Status and Flags
+		LM%RTC==MASKB(18,35) ;Status Return Code
+			.LMPND==0 ;Request Pending, Not Complete
+			.LMSUC==1 ;Success, Complete
+			.LMABT==2 ;Aborted
+			.LMTXF==3 ;Transmit Failed
+			.LMCCE==4 ;Channel Communication Error
+	.LMCST==2		;KLNI Channel Status
+
+;Suffix for .RCAIC,.ELAIC
+
+	.LMICF==1		;Interrupt channel and flags
+		LM%AIC==MASKB(0,0) ;Assign Interrupt Channel
+		LM%ENU==MASKB(1,1) ;Enable Unsolicited Receipt
+		LM%ICH==MASKB(12,17) ;Interrupt Channel Number
+
+;Suffix for .RCADR
+
+	.LMHWA==1		;Local KLNI channel hardware address
+	.LMPYA==3		;Local KLNI channel current physical address
+
+;Suffix for .RCRID,.RCRCT,.RCSND,.ELDIR,.ELAST,.ELRPY,.RCRPY,.RCPOL
+;	    .ELSTS,.RCSTS,.ELABT,.RCABT
+
+	.LMREQ==3		;Request Number
+	.LMPID==.LMREQ		;Remote Console Port Id
+		LM%PID==MASKB(0,17) ;Port Id
+		LM%REQ==MASKB(18,35) ;Request Id
+
+;Suffix for .RCRBT Remote Boot and .RCRSV Reserve Console
+
+	.LMPWD==3		;Password Verification Code
+	.LMCIF==5		;Control Information
+		LM%BSV==MASKB(27,27) ;Boot Server
+			.LMSDF==0 ;System Default
+			.LMRSS==1 ;Requesting System
+		LM%BDV==MASKB(26,26) ;Boot Device
+			.LMSDF==0 ;System Default
+			.LMRSD==1 ;Specified Device
+		LM%PRO==MASKB(28,35) ;Processor to Boot
+			.LMSSP==0 ;System Processor
+			.LMCMP==1 ;Communications Processor
+	.LMDID==6		;Device Id
+	.LMSID==7		;Software Id
+
+;Suffix for .ELRPY,.RCRPY,.RCPOL,.RCSND,.ELDIR,.ELAST
+
+	.LMRBL==4		;LLMOP Response Buffer Length
+		LM%RML==MASKB(0,17) ;Returned Message Length
+		LM%MBL==MASKB(18,35) ;Maximum Buffer Length
+	.LMRBP==5		;LLMOP Response Buffer Pointer
+
+	.LMLBL==.LMRBL		;Loop Buffer Length
+	.LMLBP==.LMRBP		;Loop Buffer Pointer
+
+	.LMLDL==.LMRBL		;Loopback Data Length
+	.LMLDP==.LMRBP		;Loopback Data Pointer
+
+;Suffix for .ELAST
+
+	.LMAST==6		;Assistant Address
+	.LMHLP==10		;Assistant Level
+		.LMXMT==1	;Transmit
+		.LMRCV==2	;Receive
+		.LMFUL==3	;Full
+
+;.LLMOP UUO ERROR CODES
+
+LMPRV%==1		;INSUFFICIENT PRIVILEGES
+LMILF%==2		;ILLEGAL FUNCTION
+LMICN%==3		;ILLEGAL CHANNEL NUMBER
+LMOFF%==4		;LLMOP IS OFF
+LMADC%==5		;ADDRESS CHECK
+
+;REQUEST BLOCK STATE DEFINITIONS
+
+.LMPND==0		;REQUEST PENDING, NOT COMPLETE
+.LMSUC==1		;SUCCESS COMPLETE
+.LMCCE==4		;CHANNEL COMMAND ERROR
+
+	END

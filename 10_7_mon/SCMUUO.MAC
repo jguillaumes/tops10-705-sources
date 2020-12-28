@@ -1,0 +1,2236 @@
+	TITLE SCMUUO - Session Control UUO handler V110
+	SUBTTL	W. Nichols & V. Brownell/AJR/Tarl 	29 SEP 87
+
+	SEARCH D36PAR,SCPAR,MACSYM
+	SEARCH F,S
+
+	SALL
+
+;THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED
+;  OR COPIED ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE.
+;
+;COPYRIGHT (c) DIGITAL EQUIPMENT CORPORATION 1981,1984,1986,1988.
+;ALL RIGHTS RESERVED.
+
+.CPYRT<1981,1988>
+
+
+XP SCMUUO,110
+
+
+	$RELOC
+	XRESCD
+	SUBTTL	Table of Contents
+
+
+;		Table of Contents for SCMUUO
+;
+;
+;			   Section			      Page
+;   1. Table of Contents. . . . . . . . . . . . . . . . . . .    2
+;   2. Definitions
+;        2.1.   External References . . . . . . . . . . . . .    3
+;        2.2.   Accumulators. . . . . . . . . . . . . . . . .    4
+;        2.3.   NSP.
+;             2.3.1.     Functions and Arguments. . . . . . .    5
+;             2.3.2.     Argument Parameters. . . . . . . . .    6
+;   3. SCURST - RESET call from UUOCON. . . . . . . . . . . .    8
+;   4. SCUUUO
+;        4.1.   The NSP. UUO processor. . . . . . . . . . . .    9
+;        4.2.   SCUINI - Initialization . . . . . . . . . . .   11
+;        4.3.   SCUAFN - Read the Function Code . . . . . . .   13
+;        4.4.   SCURAA - Read the AAn Arguments . . . . . . .   14
+;   5. Argument Readers
+;        5.1.   SCCCBL - Connect Block. . . . . . . . . . . .   15
+;        5.2.   SCCSBL - String Block . . . . . . . . . . . .   16
+;        5.3.   SCCARG - Integer Argument . . . . . . . . . .   17
+;        5.4.   SCCBCT - Byte Count . . . . . . . . . . . . .   18
+;        5.5.   SCCBPT - Byte pointer . . . . . . . . . . . .   19
+;        5.6.   SCCBUF - Buffer Checking Subr . . . . . . . .   20
+;   6. Argument Writers
+;        6.1.   SCSCBL - Store Connect Block into User Space.   23
+;        6.2.   SCSSBL - Store String Block into User Space .   24
+;        6.3.   SCSARG, SCSBCT, SCSBPT. . . . . . . . . . . .   25
+;   7. Argument Discarders
+;        7.1.   SCDARG, SCDCBL, SCDSBL. . . . . . . . . . . .   26
+;   8. Subroutines
+;        8.1.   SCUHBR - Subroutine to do the HIBERs. . . . .   27
+;        8.2.   SCUWAK - Subroutine to do the WAKEs.. . . . .   28
+;        8.3.   SCTPSI - Get PSI associated variable. . . . .   29
+;        8.4.   SCGWRD & SCPWRD . . . . . . . . . . . . . . .   30
+;        8.5.   WRDTRP - The Word Troll Processor . . . . . .   31
+;        8.6.   GETPRO - Get process block. . . . . . . . . .   32
+;        8.7.   GETSTR - Get a string block . . . . . . . . .   34
+;        8.8.   PUTPRO - Write Process Block to User's Space.   35
+;        8.9.   PUTSTR - Write String Block to User's Space .   36
+;   9. Impure Storage . . . . . . . . . . . . . . . . . . . .   37
+;  10. End of SCMUUO. . . . . . . . . . . . . . . . . . . . .   38
+	SUBTTL	Definitions -- External References
+
+;ENTRY declarations for LINK
+
+	ENTRY SCUUUO		;USER UUO CALLS FROM UUOCON
+	ENTRY SCURST		;RESET CALL FROM UUOCON
+
+;These are the external references to the D36COM library of routines.
+
+	EXT DNGMSG		;GET DECNET-36 MESSAGE BLOCK
+	EXT DNFMSG		;FREE MESSAGE BLOCK
+
+	EXT DNGWDS		;GET SOME WORDS
+	EXT DNGWDZ		;GET SOME ZEROED WORDS
+	EXT DNFWDS		;FREE SOME WORDS
+	EXT DNSWDS		;SMEAR SOME WORDS
+
+	EXT DNLMSS		;LINK MESSAGE SEGMENT INTO MESSAGE BLOCK
+
+;Here are the references to SCLINK.
+
+	EXT SCTNSF		;NSP. FUNCTION PROCESSING
+	EXT MAKSJB		;MAKE A SJB
+	EXT SCTRST		;RESET AN SJB
+	EXT SCTWKQ		;ENQUEUE THIS SLB FOR SCTPSQ CALL
+	EXT SCTPSQ		;DEQUEUE NEXT SLB FOR PSI INTERRUPT
+
+;Here are some external references to TOPS-10 things.
+
+	EXT RTN			;RETURN
+	EXT RSKP		;SKIP RETURN
+
+
+
+	SUBTTL	Definitions -- Accumulators
+
+;SCMUUO must use its own AC definitions, since it is the gateway
+;between TOPS10's AC usage and DECnet-36's system independent AC usage.
+
+	OPDEF	CALL	[PUSHJ P,]
+	OPDEF	RET	[POPJ P,]
+	.NODDT CALL,RET
+
+	SJ=U		;(U ) PTR TO SCT JOB BLK (SEE PURGE SJ FURTHER DOWN)
+	MS=P4		;(P4) POINTER TO CURRENT MSD
+	SA=P3		;(P3) POINTER TO SCLINK ARGS BLOCK
+	R=:17		;(R ) BECAUSE MACSYM REDEFINES THIS
+	CX=R		;(R ) SUPER-TEMP FOR MACROS
+	.SAC==CX	;(R ) DIFFERENT NAME, FOR MACROS.
+
+;Notice that W and M correspond to DECnet-36's T5 and T6, so save
+;them around calls to D36COM routines.
+
+	SUBTTL	Definitions -- NSP. -- Functions and Arguments
+
+;These are the definitions of all the NSP. functions.  The format of the
+;NSPFNC macro is function name followed by the three possible arguments
+;of the NSP. UUO.
+;
+;	R = Read this arg from user's block
+;	W = Write this arg into user's block
+;	P = Privileged Argument
+
+DEFINE NSPFNS,<
+	NSPFNC EA,CBL(R),ARG(R),ARG(R,P)	;;ENTER ACTIVE
+	NSPFNC EP,CBL(R)			;;ENTER PASSIVE
+	NSPFNC RI,CBL(W),ARG(W),ARG(W)		;;READ CONNECT DATA
+	NSPFNC AC,SBL(R),ARG(R),ARG(R,P)	;;ACCEPT CONNECT
+	NSPFNC RJ,SBL(R),ARG(R,P)		;;REJECT CONNECT
+	NSPFNC RC,SBL(W),ARG(W),ARG(W)		;;READ CONFIRM INFO
+	NSPFNC SD,SBL(R),ARG(R,P)		;;SYNCHRONOUS DISCONNECT
+	NSPFNC AB,SBL(R),ARG(R,P)		;;ABORT AND RELEASE
+	NSPFNC RD,SBL(W),ARG(W)			;;READ DISCONNECT DATA
+	NSPFNC RL				;;RELEASE CHANNEL
+	NSPFNC RS,ARG(W),ARG(W)			;;READ STATUS
+	NSPFNC IS,SBL(R)			;;SEND INTERRUPT DATA
+	NSPFNC IR,SBL(W)			;;READ INTERRUPT DATA
+	NSPFNC DS,BCT(R,W),BPT(R,W)		;;SEND NORMAL DATA
+	NSPFNC DR,BCT(R,W),BPT(R,W)		;;READ NORMAL DATA
+	NSPFNC SQ,ARG(R),ARG(R),ARG(R)		;;SET QUOTAS AND GOALS
+	NSPFNC RQ,ARG(W),ARG(W),ARG(W)		;;READ QUOTAS AND GOALS
+	NSPFNC JS,ARG(R,P),ARG(R,P)		;;SET JOB QUOTAS & GOALS
+	NSPFNC JR,ARG(W),ARG(W)			;;READ JOB QUOTAS & GOALS
+	NSPFNC PI,ARG(R)			;;SET PSI REASON MASK
+>
+	SUBTTL	Definitions -- NSP. -- Argument Parameters
+
+;Each of these macros is a possible argument to the NSP. UUO.
+
+DEFINE ARG(A1,A2,A3),<COMBLK(<A1,A2,A3>,ARG)>
+DEFINE SBL(A1,A2,A3),<COMBLK(<A1,A2,A3>,SBL)>
+DEFINE CBL(A1,A2,A3),<COMBLK(<A1,A2,A3>,CBL)>
+DEFINE BCT(A1,A2,A3),<COMBLK(<A1,A2,A3>,BCT)>
+DEFINE BPT(A1,A2,A3),<COMBLK(<A1,A2,A3>,BPT)>
+
+DEFINE COMBLK(FLAGS,TYPE),<
+	%FLG==0
+	IRP FLAGS,<IFNB <FLAGS>,<%FLG==%FLG!AP'FLAGS>>
+	EXP %FLG!AT.'TYPE>
+
+;These are the optional parameters for any NSP. argument.
+
+BEGSTR AP			;ARGUMENT PARAMETER DESCRIPTOR
+	FIELD FLG,6		;FLAGS ASSOCIATED WITH PARAMETER
+	  BIT P			;PRIVILIGED ARG
+	  BIT R			;READ ARG FROM USER AT BEG OF UUO
+	  BIT W			;WRITE ARG TO USER AT END OF UUO
+	HWORD DSP		;DISPATCH OFFSET BY ARG TYPE
+ENDSTR
+
+;These are the possible arguments that can be given to the NSP. UUO.
+
+DEFINE ARGS,<
+	TYPE ARG		;;GENERALIZED ARGUMENT
+	TYPE CBL		;;CONNECT BLOCK
+	TYPE SBL		;;STRING BLOCK
+	TYPE BCT		;;BUFFER BYTE COUNT
+	TYPE BPT		;;BUFFER BYTE POINTER
+>
+
+;Now expand them to AT.xxx symbols.
+
+DEFINE TYPE(ARG),<
+	%CNT==%CNT+1
+	AT.'ARG==%CNT-1>
+
+	%CNT==0
+	ARGS
+
+;Now make the "check arguments" dispatch table.
+
+DEFINE TYPE(ARG),<
+	IFIW SCC'ARG>
+
+SCUCDS:	ARGS
+
+;Now make the "store arguments" dispatch table.
+
+DEFINE TYPE(ARG),<
+	IFIW SCS'ARG>
+
+SCUSDS:	ARGS
+
+;Now make the "discard arguments" dispatch table.
+
+DEFINE TYPE(ARG),<
+	IFIW SCD'ARG>
+
+SCUDDS:	ARGS
+;Now expand the dispatch table.
+
+DEFINE NSPFNC(FUNC,ARG1,ARG2,ARG3),<
+
+	%CNT==%CNT+1
+	%ARG==0
+
+	IFN <%CNT-.NSF'FUNC>,<
+		PRINTX ?NSP. Function .NSF'FUNC in SCMUUO not in
+		PRINTX ? the same order as in SCPAR.UNV
+		PASS2
+		END>
+
+	IFNB <ARG1>,<%ARG==%ARG+1>
+	IFNB <ARG2>,<%ARG==%ARG+1>
+	IFNB <ARG3>,<%ARG==%ARG+1>
+
+	EXP [EXP %ARG		;;COUNT OF ARGUMENTS THAT ARE LEGAL
+	    'ARG1		;;NOTE THAT THIS LITERAL ONLY INCLUDES
+	    'ARG2		;; ENTRIES FOR %ARG ARGUMENTS
+	    'ARG3]
+>
+
+	%CNT==0
+
+SCUTAB:	NSPFNS
+
+;Now get rid of all those useless symbols.
+
+	PURGE CBL,SBL,ARG,BCT,BPT,NSPFNC,NSPS
+	SUBTTL	SCULGO - LOGOUT call from COMCON
+
+;Routine called by COMCON when a job is killed
+;
+;Call:
+;	J/ Job number
+;	PUSHJ	P,SCULGO
+;Returns:
+;	CPOPJ ALWAYS
+
+SCUPOP::
+SCULGO::MCALL (RG,MSEC1,FNDPDS##) ;SET UP PDB
+	SKIPN .PDSJB##(W)	;JOB HAVE ANY SJB?
+	RET			;NO, RETURN
+	SEC1			;RUN IN SECTION 1
+SCULG1:	MOVE T1,.PDSJB##(W)	;GET SJB POINTER
+	CALL CHKSJB##		;ANY SLBs ?
+	IFNSK.
+	  CALL SCH1BS		;YES, SLEEP FOR A SECOND
+	  JRST SCULG1		;AND TRY AGAIN
+	ENDIF.
+;
+; Now it's safe to free the SJB
+;
+	MOVE T1,.PDSJB##(W)	;GET SJB POINTER
+	SETZM .PDSJB##(W)	;AND CLEAR
+	CALLRET FRESJB##	;FREE THE SJB AND RETURN
+	SUBTTL	SCURST - RESET call from UUOCON
+
+;Called from the UUO handler for an NSP. UUO
+;
+;Call:
+;	J/ Job number
+;
+;	RET			;ONLY RETURN
+;
+;Once the RESET gets the required message blocks, it should be quick;
+;SCLINK just closes each of the NSP links, it does not abort or
+;otherwise wait for a DISCONNECT sequence.  SCLINK does have to wait
+;for a CLOSE-COMPLETE message from LLINKS before it can relinquish
+;control, since it must free up any message blocks outstanding in the
+;lower layers of DECnet.
+
+SCURST::HRRZ T1,JBTPDB##(J)	;GET POINTER TO USER'S PDB
+	JUMPE T1,CPOPJ##	;JUST GO AWAY IF THERE ISN'T ONE
+	SKIPN T2,.PDSJB##(T1)	;ANY SJB POINTER THERE?
+	RET			;NOTHING, LEAVE NOW
+	SAVEAC <SJ,SA,M,W>	;DN ROUTINES MAY SMASH (M & W)
+	IFN <<T4-W+1>!<T4-M+2>>,<PRINTX ?W OR M HAS MOVED. FIX THIS CODE>
+	MOVE SJ,T2		;SET UP SJ WITH SJB POINTER
+	SEC1			;DO DECNET IN SECTION 1
+IFE FTXMON,<
+	DNCALL	SCURSU		;DO DECNET IN DECNET CONTEXT
+	RET
+>
+
+;Entry point for SCUINI, J and SJ already set up
+
+SCURSU:	SETONE SJRST,(SJ)	;THIS SJB IS BEING RESET, SEE SCUINI
+
+;Here to try the RESET (again, perhaps)
+
+SCURS1:	CALL INISAB		;GET AN INITIALIZED SA BLOCK
+	  JRST SCURSL		;CAN'T, WAIT A WHILE AND TRY AGAIN
+	MOVX T1,.NSFRE		;THE RESET FUNCTION CODE
+	STOR T1,SAAFN,(SA)	;STORE THE FUNCTION CODE FOR SCLINK
+
+	MOVE T1,SA		;SCLINK NEEDS A MSG BLK TO QUEUE
+	CALL SCTNSF		;TELL SCLINK TO DO THE RESET NOW
+	TMNE SAERR,(SA)		;DID WE HAVE AN ERROR
+	JRST SCURSL		;YES, TRY AGAIN LATER
+
+;Here when the RESET has completed
+
+	SETZRO SJRST,(SJ)	;SUCCESS, NO LONGER RESETing
+	CALLRET SCUFSA		;FREE THE SA BLOCK AND RETURN
+
+;Here when the RESET must be restarted later due to allocation failure
+
+SCURSL:
+	CALL SCUFSA		;FREE THE SA BLOCK
+	CALL SCH1BS		;SLEEP FOR 1 SECOND
+	JRST SCURS1		;TRY RESET AGAIN
+
+;
+; ROUTINE TO SLEEP FOR 1 SECOND
+;
+SCH1BS:	MOVEI T1,1 * ^D1000	;SLEEP FOR ONE SECOND
+	PUSH P,F		;SAVE WHATEVER AC F IS
+	SETZM F			;HIBER THINKS F POINTS TO A DDB
+	MCALL (RG,MSEC0,HIBER##) ;WAIT FOR SOME MEMORY
+	POP P,F
+	RET
+	SUBTTL	SCUUUO -- The NSP. UUO processor
+
+;Called from the UUO handler for an NSP. UUO
+;
+;Call:
+;	T1/ UUOCON sets up T1 with contents of AC
+;	J/ Job Number
+;
+;	RET			;ON ERROR, ERROR CODE IN USER'S AC
+;	RETSKP			;ON SUCCESS, WITH FUNCTION COMPLETED
+
+	INTERNAL SCUUUO
+	XRENT SCUUUO
+
+	MOVE P1,T1		;SAVE CONTENTS OF USER AC
+	CALL SCUINI		;SET UP SJ & SA, SET UP MSG BLK
+	 JRST [	MCALL (RG,MSEC0,STOTAC##) ;CAN'T GET MEMORY, ERROR CODE IN T1
+		RET]		;STORE CODE IN USER'S AC, ERROR RETURN
+	STOR M,SJMUU,(SJ)	;SAVE MUUO FOR STOTAC, ETC
+	MOVE M,P1		;POINTER TO USER'S ARG BLOCK
+
+	MOVX P2,SJPRV		;GET THE PRIVILEGED-JOB FLAG
+	ANDCAM P2,SJ.PRV(SJ)	;ASSUME HE'S LOST ANY PRIVS
+	MCALL (RG,MSEC1,PRVJC##) ;PRIVILEGED JOB?
+	  IORM P2,SJ.PRV(SJ)	;YES, REMEMBER THAT
+
+	CALL SCGWRD		;GET THE FUNCTION WORD
+	  SCERR %NEADE,SCUUUE,<Address Error>
+	CALL SCPWRD		;PUT IT BACK TO CHECK WRITABILITY NOW
+	  SCERR %NEADE,SCUUUE,<Address Error>
+	HRRZ W,T1		;TELL SCGWRD THE LENGTH OF ARG BLK
+	CALL SCUAFN		;PROCESS THE .NSAFN ARG WORD
+	  CALLRET SCUUUE	;PROPOGATE ERROR RETURN
+	CALL SCGWR1		;GET CHANNEL NUMBER (MAYBE JOB NUMBER)
+	  SCERR %NEADE,SCUUUE,<Address Error>
+	CALL SCPWRD		;PUT IT BACK TO CHECK WRITABILITY NOW
+	  SCERR %NEADE,SCUUUE,<Address Error>
+	STOR T1,SAACH,(SA)	;STORE IT IN THE SA'S ARG BLOCK
+	CALL SCURAA		;READ THE .NSAAn ARGUMENTS FROM USER
+	  CALLRET SCUUUE	;PROPOGATE ERROR RETURN
+
+;Call SCLINK to perform the NSP. function.
+	MOVE T1,SA		;T1 POINTS TO SA STRUCTURE'S MSG BLK
+	CALL SCTNSF		;PERFORM THE FUNCTION
+
+;Now store the arguments in the SA block back into the User Space.
+	MOVE M,P1		;RESTORE VIRGIN M FOR SCPWRD
+	CALL SCUWAxx		;WRITE BACK .NSAxx AS REQUESTED
+	  CALLRET SCUUUI	;WE HAD AN ERROR, CHECK IT
+	CALL SCUFSA		;FREE THE SA MESSAGE BLOCK
+	RETSKP			;SUCCESS RETURN
+;Here to check the error code returned from SCUWAxx
+
+SCUUUI:	CAIE T1,%NEADE		;WAS ERROR AN ADDRESS ERROR?
+	CALLRET SCUUUE		;NO, NO PROBLEM FOR US
+
+;Here if we had an address error after the function
+;If we get here, then we let an erroneous address get through to
+;SCLINK and we were very lucky not get get an IME STOPCD.
+
+	BUG. CHK,SCMAAE,SCMUUO,SOFT,<Address Check after Function Call>,,<
+
+Cause:	This BUG is not documented yet.
+
+>
+	MOVX T1,%NEADE
+	CALLRET SCUUUE		;ERROR RETURN TO USER
+
+
+;Here to deallocate internal SBlock and CBlocks and the message
+;block (SA block) used to pass arguments to SCLINK.
+
+;Give error return.
+
+SCUUUE:	LOAD M,SJMUU,(SJ)	;TELL STOTAC WHICH AC TO STORE T1 IN
+	MCALL (RG,MSEC0,STOTAC##);STORE ERROR CODE IN USER'S AC
+;	CALLRET SCUFSA		;CALL THE NORMAL ROUTINE
+				;GIVE ERROR RETURN (ORED)
+
+;Free the SA block and any of its appendages
+
+SCUFSA:	OPSTR <SKIPN SA,>,SJSAB,(SJ)	;GET POINTER TO CURRENT SA BLOCK
+	RET				;LEAVE IF NO SA BLOCK LEFT
+	OPSTR <SKIPE T1,>,SACBP,(SA)	;IS THERE A CONNECT BLOCK?
+	CALL DNFWDS			;YES, FREE UP THOSE WORDS
+	OPSTR <SKIPE T1,>,SASBP,(SA)	;IS THERE A STRING BLOCK?
+	CALL DNFWDS			;YES, FREE UP THOSE WORDS
+	MOVE T1,SA			;WE CHECKED SA ABOVE
+	CALL DNFWDS			;YES, FREE IT
+	OPSTRM <SETZB SA,>,SJSAB,(SJ)	;WE NO LONGER HAVE AN SA BLOCK
+	RET				;DONE
+	SUBTTL SCUUUO -- SCUINI - Initialization
+
+;Here to set up SCUUUO to process an NSP. function (User Mode)
+;
+;Call:
+;	RET			;ON ERROR, ERROR CODE IN T1
+;	RETSKP			;ON SUCCESS
+;
+;Sets up SA/ Message block to pass to SCLINK
+;	 SJ/ Pointer to SC's job block
+;	 J/  Job Number
+
+SCUINI:	SAVEAC <P1,M,W>		;DN ROUTINES MAY SMASH M AND W
+	IFN <<T4-W+1>!<T4-M+2>>,<PRINTX ?W OR M HAS MOVED. FIX THIS CODE>
+	HRRZ P1,JBTPDB##(J)	;GET POINTER TO JOB'S PDB
+	JUMPE P1,[BUG. CHK,SCMNPD,SCMUUO,SOFT,<No PDB for Job>,,<
+
+Cause:	This BUG is not documented yet.
+
+>,SCUI.A]
+	SKIPE SJ,.PDSJB##(P1)	;GET POINTER TO JOB'S SJB
+	JRST SCUI.1		;ALREADY HAVE AN SJB, USE IT
+
+;Here to build a SJB for a new job
+
+	MOVE T1,SCUDFT		;GET DEFAULT GOAL, QUOTAS
+	CALL MAKSJB		;GO MAKE AN SJB
+SCUI.A:	  SCERR %NEALF,RTN,<Allocation failure>
+	MOVE SJ,T1		;SJB POINTER RETURNED IN T1
+	STOR J,SJJOB,(SJ)	;SCLINK DOESN'T KNOW ABOUT J
+	MOVEM SJ,.PDSJB##(P1)	;STORE POINTER TO NEW SJB IN PDB
+SCUI.1:
+	TMNE SJRST,(SJ)		;RESET IN PROGRESS?
+	  CALL SCURSU		;MUST COMPLETE THE RESET FIRST
+	CALL INISAB		;SET UP AN SA BLOCK TO SEND TO SCLINK
+	  RET			;PROPOGATE ERROR RETURN, CODE IN T1
+	RETSKP
+;Here to set up an SAB block to pass to SCLINK
+;
+;Call:
+;	SJ/ Pointer to SC's job block
+;
+;Return:
+;	RET			;ON ERROR, ERROR CODE IN T1
+;	RETSKP			;ON SUCCESS
+;
+;Sets up SA/ Message block to pass to SCLINK
+
+INISAB:	SAVEAC <M,W>		;DN ROUTINES MAY SMASH M AND W
+	CALL SCUFSA		;FREE ANY LEFTOVER SA BLK & APPENDAGES
+	SETZM SA		;ZERO SA IN CASE OF ALLOCATION FAILURE
+	MOVEI T1,SA.LEN		;LENGTH OF AN SA BLOCK
+	CALL DNGWDS		;GET NON-ZEROED MSG BLK FOR SCLINK ARGS
+	  SCERR %NEALF,RTN,<Allocation Failure>
+	MOVE SA,T1		;SET UP SA
+	STOR SA,SJSAB,(SJ)	;SAVE PTR FOR WHEN WE LEAVE
+
+;Zero some fields we expect to be zero, since block is not zeroed
+
+	SETZRO SABCT,(SA)	;SCCBxT NEEDS TO KNOW
+	SETZRO SABPT,(SA)	; OR NOT WE HAVE A BPT OR COUNT YET
+	SETZRO SASBP,(SA)	;WE HAVE NO STRING BLOCK
+	SETZRO SACBP,(SA)	;WE HAVE NO CONNECT BLOCK
+	SETZRO SAMFG,(SA)	;WE HAVE NO MONITOR FLAGS
+
+;Fill in some fields that we always need in the SA block
+
+	STOR SJ,SASJB,(SA)	;STORE THE ADDRESS OF THE SJB
+	XMOVEI T1,SCUHBR	;POINT TO THE HIBER ROUTINE
+	STOR T1,SAHBA,(SA)	;STORE IN THE HIBER ADDRESS ARGUMENT
+	XMOVEI T1,SCUWAK	;GET ADDRESS OF WAKE HANDLER
+	STOR T1,SAWKA,(SA)	; AND TELL SCLINK ABOUT IT
+	RETSKP			;SUCCESS
+	SUBTTL SCUUUO -- SCUAFN - Read the Function Code
+
+;Here to check the .NSAFN word, the function word of the user's args
+;
+;Call:	T1/ The .NSAFN word
+;
+;	RET			;ON SCERR, T1 HOLDS ERROR CODE
+;	RETSKP			;ON SUCCESS
+
+SCUAFN:	LOADE T3,NFSIZ,+T1	;GET SIGNED SIZE (WORDS) OF ARG BLOCK
+	CAIGE T3,2		;DO WE HAVE THE MINIMUM NUMBER OF ARGS
+	SCERR %NEWNA,RTN,<Wrong number of arguments>
+	STOR T3,SANAG,(SA)	;SAVE NUMBER OF ARGS IN ARG BLOCK
+
+	LOAD T3,NFFLG,+T1	;GET THE FLAGS FROM THE FLAG FIELD
+	STOR T3,SAFLG,(SA)	;STORE THEM IN THE SA FLAG WORD
+
+	LOAD T3,NFFNC,+T1	;THE FUNCTION CODE
+	SKIPLE T3		;CHECK THAT ITS A VALID FUNCTION
+	CAILE T3,.NSFMX		; ON THE FUNCTION TYPE
+	SCERR %NEILF,RTN,<Illegal function>
+	STOR T3,SAAFN,(SA)	;STORE THE FUNCTION TYPE IN ARG BLOCK
+	RETSKP
+	SUBTTL SCUUUO -- SCURAA - Read the AAn Arguments
+
+;Store any connect block or string blocks in the internal connect and
+;string block format for SCLINK.
+;
+;Call:	SA/ The message block for SA arguments
+;
+;Call:	RET			;ON SCERR, T1 HOLDS ERROR CODE
+;	RETSKP			;ON SUCCESS
+;
+;Arguments with APR set are copied from the user's space to monitor
+;buffers for SCLINK.  Arguments with APW set are checked to assure that
+;when we want to copy data to them after the function is complete that
+;we will not find a page fault which would restart the UUO.
+
+SCURAA:	SAVEAC <M,W,P1,P2>
+	LOAD P2,SAAFN,(SA)	;LOAD UP THE FUNCTION CODE
+	MOVE P2,SCUTAB-1(P2)	;GET THE FUNCTION'S ARGUMENT TABLE
+	MOVE P1,0(P2)		;GET THE COUNT OF EXPECTED ARGUMENTS
+	LOAD T1,SANAG,(SA)	;GET THE NUMBER OF ARGUMENTS USER GAVE
+	CAILE P1,-2(T1)		;CHOSE SMALLER OF THE TWO
+	MOVEI P1,-2(T1)		; (MINUS .NSAFN AND .NSACH)
+	ADD P2,P1		;POINT TO LAST ARG DESCRIPTOR
+	ADD M,P1		;POINT TO LAST ARG
+	JUMPLE P1,RSKP		;SUCCESS IF NO ARGS TO COPY
+
+SCURA1:	TMNN <APR,APW>,(P2)	;SHOULD WE READ OR CHECK FOR WRITE?
+	JRST SCURA3		;NO, SKIP PROCESSING
+				;YES
+	CALL SCGWRD		;GET THE ARGUMENT WORD INTO T1
+	  SCERR %NEADE,RTN,<Address Error>
+	TMNE SJPRV,(SJ)		;YES, PRIVILEGED JOB?
+	JRST SCURA2		;YES, DON'T CHECK THIS ONE
+	JUMPE T1,SCURA2		;IF NOTHING SUPPLIED, DON'T PRIV CHECK
+	TMNE APP,(P2)		;NO, IS THIS A PRIVILEGED FUNCTION?
+	SCERR %NEPRV,RTN,<No Privileges to Perform Function>
+SCURA2:	LOAD T2,APDSP,(P2)	;GET THE DISPATCH OFFSET
+	CALL @SCUCDS(T2)	;CALL THE CORRECT ARGUMENT PROCESSOR
+	  RET			;THERE WAS AN ERROR, PROPAGATE THE ERROR
+	XMOVEI T2,SA.AA1-1(SA)	;POINT TO FIRST AA ARGUMENT
+	ADD T2,P1		;PASS STORAGE LOC TO ARG PROCESSOR
+	MOVEM T1,(T2)		;STORE VALUE RETURNED BY PROCESSOR
+
+	TMNE APR,(P2)		;DID WE REALLY WANT TO READ THIS?
+	JRST SCURA3		;YES, ALL DONE
+	SETZM (T2)		;NO, JUST CHECKING FOR PAGE FAULTS
+	LOAD T1,APDSP,(P2)	;GET DISPATCH OFFSET AGAIN
+	CALL @SCUDDS(T1)	;DISCARD STRING OR CONNECT BLOCK
+
+SCURA3:	SOJ P2,			;LOOP DOWN THE ARG DESCRIPTORS
+	SOJ M,			;LOOP DOWN USER'S ARG LIST TOO
+	SOJG P1,SCURA1		;LOOP WHILE STILL MORE ARGS
+	RETSKP			;SUCCESS RETURN
+	SUBTTL	Argument Readers -- SCCCBL - Connect Block
+
+;SCCCBL - Read the Connect-Block argument from user address space
+;
+; Call:	T1/ Contents of argument word
+;	SJ/ Pointer to Session Control Job Block
+;
+; Return:
+;	RET			;ON RESOURCE FAILURE
+;	RETSKP			;ALL IS OK, WITH T1/ WORD FOR SJAAx
+;
+; Uses: T1-T4
+;
+;Note that M is the same as DECnet-36's T6, and is thus not saved
+;by calls to DECnet-36 subroutines.
+
+SCCCBL:	SAVEAC <M,W,P1,P2>	;PRIVATE M AND SAVE A COUPLE OF PEAS
+	IFN <<T4-W+1>!<T4-M+2>>,<PRINTX ?W OR M HAS MOVED. FIX THIS CODE>
+	MOVE P1,T1		;SAVE USER CBLOCK POINTER
+	OPSTR <SKIPE T1,>,SACBP,(SA) ;DO WE HAVE A CONNECT BLOCK?
+	CALL DNFWDS		;YES, GET A SHINY NEW ONE INSTEAD
+	MOVX T1,CB.LEN		;LENGTH OF A CONNECT BLOCK
+	CALL DNGWDZ		;GET A ZEROED MONITOR CONNECT BLOCK
+	  SCERR %NERES,RTN,<Resource Error>
+	STOR T1,SACBP,(SA)	;STORE POINTER TO MONITOR CONNECT BLOCK
+	MOVE P2,T1		;SAVE POINTER TO MONITOR CONNECT BLOCK
+
+	JUMPE P1,SCCCBX		;LEAVE IF NO USER CONNECT BLOCK
+	MOVE M,P1		;SET THE NEW BASE TO GET ARGUMENTS FROM
+;LENGTH
+	CALL SCGWRD		;GET THE LENGTH OF THE USER CBLOCK
+	  SCERR %NEADE,RTN,<Address Error>
+	HRRZ W,T1		;TELL SC?WR1 LENGTH OF ARG BLOCK
+	JUMPE W,SCCCBX		;LEAVE IF THE CONNECT BLOCK IS ZERO LONG
+	CAIL W,CBL.MN		;RANGE CHECK THE NUMBER OF ARGS
+	CAILE W,CBL.MX
+	SCERR %NECBL,RTN,<Connect block length error>
+;NAME
+	CALL SCGWR1		;GET THE POINTER TO THE NAME BLOCK
+	  SCERR %NEADE,RTN,<Address Error>
+	CALL GETSXR		;GET THE STRING BLOCK INTO A SIXBIT WORD
+	  SCERR %NEADE,RTN,<Address Error>
+	SETZRO CBCIR,(P2)	;ZERO CIRCUIT ID
+	SETZRO CBNUM,(P2)	;AND NODE ADDRESS
+	LOAD T2,SAAFN,(SA)	;GET FUNCTION CODE
+	CAIE T2,.NSFEA		;ENTER ACTIVE FUNCTION?
+	 JRST SCCCB1		;NO, SKIP NAME/ADDRESS MAPPING
+	STOR T1,CBNUM,(P2)	;SAVE NODE NAME IN CASE SCTN2A FAILS
+
+	;THE FOLLOWING IS A KLUDGE TO ALLOW NML TO CONNECT TO
+	;A NODE WITHOUT KNOWING IT'S NAME.  THIS IS NOT A USER
+	;FACILITY, AND IS EXPLICITLY NOT SUPPORTED EXCEPT FOR OUR
+	;USE.  USERS ARE NOT SUPPOSED TO KNOW ABOUT NODE NUMBERS.
+	;
+	;A NODE NUMBER IS PASSED BY NML AS A STRING BLOCK OF LENGTH 6
+	;BYTES.  EACH BYTE CONTAINS ^O40 + SIX BITS OF THE DESIRED ADDRESS,
+	;WITH LEADING ZEROES.  THIS FALLS THRU THE STRING-SIXBIT CONVERSION.
+	TLNN	T1,770000	;IS THE NAME REALLY SIXBIT?
+	 JRST	SCCCB1		;NO.  MUST BE AN ADDRESS
+	;***END NML-SPECIFIC CONNECT BLOCK FORMAT
+
+	CALL SCTN2A##		;DO NAME TO NODE ADDRESS TRANSLATION
+	 JRST [	LOAD T1,CBNUM,(P2) ;GET BACK NODE NAME
+		CALL SCTN2L##	;TRY FOR LOOPBACK NODE NAME
+		 SCERR %NEUKN,RTN,<Unknown node name>
+		STOR T1,CBCIR,(P2) ;STORE CIRCUIT ID
+		MOVE T1,RTRADR## ;GET OUR NODE ADDRESS
+		MOVE T2,RTRHOM## ;AND OUR AREA NUMBER
+		DPB T2,[POINTR (T1,RN%ARE)] ;BUILD COMPLETE NODE ADDRESS
+		JRST .+1]	;AND CONTINUE
+	STOR T1,CBNUM,(P2)	;SAVE FOR LATER USE
+SCCCB1:
+
+;SOURCE PROCESS BLOCK
+	CALL SCGWR1		;GET THE NEXT ARG (SOURCE PROCESS BLOCK PTR)
+	  SCERR %NEADE,RTN,<Address Error>
+	XMOVEI T2,CB.SRC(P2)	;PUT IT HERE
+	CALL GETPRO		;GET THE PROCESS BLOCK
+	  RET			;OOPS, GOT AN ERROR
+
+;DESTINATION PROCESS BLOCK
+	CALL SCGWR1		;GET THE DESTINATION PROCESS BLOCK PTR
+	  SCERR %NEADE,RTN,<Address Error>
+	XMOVEI T2,CB.DST(P2)	;PUT IT HERE
+	CALL GETPRO		;GET THE PROCESS BLOCK
+	  RET			;OOPS, GOT AN ERROR
+;USER ID
+	CALL SCGWR1		;GET THE NEXT ARG (USER ID)
+	  SCERR %NEADE,RTN,<Address Error>
+	JUMPE T1,SCCCB2		;IS THERE A POINTER TO STRING?
+	XMOVEI T2,CB.UID(P2)	;YES, POINT TO ITS AREA IN THE INTERNAL CBLOCK
+	CALL GETSTR		;PUT IT IN
+	  SCERR %NEADE,RTN,<Address Error>
+	STOR T1,CBUCT,(P2)	;ALONG WITH THE COUNT
+SCCCB2:
+
+;PASSWORD
+	CALL SCGWR1		;GET THE NEXT ARG (PASSWORD)
+	  SCERR %NEADE,RTN,<Address Error>
+	JUMPE T1,SCCCB3		;SBLOCK POINTER?
+	XMOVEI T2,CB.PSW(P2)	;YES, PASSWORD PLACE IN CBLOCK
+	CALL GETSTR		;PUT IT IN MONITOR'S CBLOCK
+	  SCERR %NEADE,RTN,<Address Error>
+	STOR T1,CBPCT,(P2)	;SAVE THE COUNT
+SCCCB3:
+
+;ACCOUNT
+	CALL SCGWR1		;GET THE NEXT ARG (ACCOUNT STRING)
+	  SCERR %NEADE,RTN,<Address Error>
+	JUMPE T1,SCCCB4		;SBLOCK POINTER?
+	XMOVEI T2,CB.ACC(P2)	;ACCOUNT'S PLACE IN CBLOCK
+	CALL GETSTR		;PUT IT IN MONITOR'S CBLOCK
+	  SCERR %NEADE,RTN,<Address Error>
+	STOR T1,CBACT,(P2)	;SAVE THE COUNT
+SCCCB4:
+
+;USER DATA
+	CALL SCGWR1		;GET THE USER DATA STRING POINTER
+	  SCERR %NEADE,RTN,<Address Error>
+	JUMPE T1,SCCCBX		;JUMP IF NO USER DATA OFFERED
+	XMOVEI T2,CB.UDA(P2)	;PUT IT HERE
+	MOVEI T3,UDA.MX		; WITH THIS MAX LENGTH
+	CALL GETST1		;  IN THE CBLOCK
+	  SCERR %NEADE,RTN,<Address Error>
+	STOR T1,CBCCT,(P2)	; ALONG WITH THE COUNT
+SCCCBX:	LOAD T1,SACBP,(SA)	;RETRIEVE POINTER TO CONNECT BLOCK
+	RETSKP			;RETURN SUCCESSFULLY TO USER
+	SUBTTL	Argument Readers -- SCCSBL - String Block
+
+;SCCSBL - Process the String-Block argument
+;
+; Call:
+;	T1/ Contents of argument word
+;	SJ/ Pointer to Session Control Job Block
+;
+; Return:
+;	RET			;ON ERROR, CODE IN T1
+;	RETSKP			;SUCCESS, WITH T1 WITH VALUE FOR SJAAx
+;
+; Uses: T1-T4
+;
+;We might have blocks hanging off the SA block from last time if
+;this is a restarted UUO (after a page fault).  We free them and get
+;new ones rather than trying to clean them up here to reduce the
+;number of paths offered by this code.  I assume page fault restarts
+;will not happen too often, so the overhead is not significant.
+
+SCCSBL:	SAVEAC <M,W,P1,P2>	;GET PRIVATE COPY OF M AND SAVE TWO PS
+	MOVE P1,T1		;SAVE THAT POINTER
+	OPSTR <SKIPE T1,>,SASBP,(SA) ;DO WE HAVE A STRING BLOCK
+	CALL DNFWDS		;YES, GET A SHINY NEW ONE
+
+	JUMPE P1,RSKP		;RETURN SUCCESS, EVEN THOUGH NOT THERE
+
+	MOVX T1,SB.LEN		;GET A STRING
+	CALL DNGWDS		; BLOCK, NO NEED TO ZERO IT
+	  SCERR %NEALF,RTN,<Allocation Failure>
+	STOR T1,SASBP,(SA)	;SAVE THE POINTER
+
+	MOVE P2,T1		;SAVE THE INTERNAL SBLOCK POINTER
+	XMOVEI T2,SB.DAT(P2)	;PLACE TO STORE THE USER'S STRING
+	MOVE T1,P1		;GET THE POINTER TO USER'S SBLOCK BACK
+	CALL GETSTR		;STORE THE STRING IN THE SBLOCK
+	  SCERR %NEADE,RTN,<Address Error>
+	STOR T1,SBCNT,(P2)	;SAVE THE COUNT
+	LOAD T1,SASBP,(SA)	;GET STRING BLOCK POINTER AGAIN
+	RETSKP			;RETURN SUCCESS TO THE USER
+	SUBTTL	Argument Readers -- SCCARG - Integer Argument
+
+;SCCARG - Process a random argument
+;
+; Call:
+;	T1/ Contents of argument word
+;	T2/ Pointer to appointed storage loc for this argument
+;	SJ/ Pointer to Session Control Job Block
+;
+; Return:
+;	RET			;COULDN'T DO IT
+;	RETSKP			;WITH T1 CONTAINING WHAT TO STORE IN THE
+;				; USER'S ARG BLOCK
+;
+; Uses: T1-T4
+
+SCCARG:	RETSKP
+	SUBTTL	Argument Readers -- SCCBCT - Byte Count
+
+;SCCBCT - Process a byte count for a buffer
+;
+; Call:
+;	T1/ Contents of argument word
+;	T2/ Pointer to appointed storage loc for this argument
+;	SJ/ Pointer to Session Control Job Block
+;
+; Return:
+;	RET			;COULDN'T DO IT
+;	RETSKP			;WITH T1 CONTAINING WHAT TO STORE IN THE
+;				; USER'S ARG BLOCK
+;
+; Uses: T1-T4
+
+SCCBCT:	SKIPGE T1		;CHECK FOR NEGATIVE LENGTH
+	  SCERR %NEADE,RTN,<Address Error> ;DON'T ALLOW, SCLINK FALLS OVER
+	STOR T1,SABCT,(SA)	;STORE AS THE BUFFER BYTE POINTER ALSO
+	TMNN SABPT,(SA)		;HAVE ASSOCIATED BYTE POINTER YET?
+	RETSKP			;NO, LET SCCBPT DO IT LATER
+	CALL SCCBUF		;CHECK THE BUFFER
+	  RET			;ADDRESS ERROR CODE IN T1
+	LOAD T1,SABCT,(SA)	;GET VALUE FOR CALLER TO STORE IN SAAAx
+	RETSKP			;SUCCESS
+	SUBTTL	Argument Readers -- SCCBPT - Byte pointer
+
+;SCCBPT - Process a byte pointer for a buffer
+;
+; Call:
+;	T1/ Contents of argument word
+;	T2/ Pointer to appointed storage loc for this argument
+;	SJ/ Pointer to Session Control Job Block
+;
+; Return:
+;	RET			;COULDN'T DO IT
+;	RETSKP			;WITH T1 CONTAINING WHAT TO STORE IN THE
+;				; USER'S ARG BLOCK
+;
+; Uses: T1-T4
+;
+;We don't allow indexing or indirection because we store back an incremented
+;byte pointer.  We would have to store a resolved (no indexing or indirection)
+;pointer, because that is what CHKBPT returns and that is what we increment.
+
+SCCBPT:	STOR T1,SABPT,(SA)	;STORE AS THE BUFFER BYTE POINTER ALSO
+	TMNN SABCT,(SA)		;HAVE ASSOCIATED BYTE COUNT YET?
+	JRST SCCBP1		;NO, LETS RESOLVE THE BYTE PTR THO
+	CALL SCCBUF		;CHECK THE BUFFER
+	  RET			;ADDRESS ERROR CODE IN T1
+	LOAD T1,SABPT,(SA)	;GET VALUE FOR CALLER TO STORE IN SAAAx
+	RETSKP			;SUCCESS
+
+;Here to resolve the user's byte pointer when we haven't got the
+;buffer length yet to check the whole buffer properly.
+
+SCCBP1:	SAVEAC M		;CHKBPT SMASHES M
+	MOVEI T2,1		;CHECK A 1 BYTE BUFFER
+	MCALL (RG,MSEC0,CHKBPT##) ;RESOLVE USER'S INDIRECTION & INDEXING
+	  SCERR %NEADE,RTN,<Address Error>
+	STOR T1,SABPT,(SA)	;STORE THE RESOLVED BYTE POINTER
+	RETSKP			;RETURN BYTE PTR IN T1 FOR SCLINK
+	SUBTTL	Argument Readers -- SCCBUF - Buffer Checking Subr
+
+;SCCBUF - Buffer Checking Subroutine for SCCBCT and SCCBPT
+;
+; Call:
+;	SJ/ Pointer to Session Control Job Block
+;
+; Return:
+;	RET			;ADDRESS ERROR, CODE IN T1
+;	RETSKP			;SUCCESS
+;	Restarts UUO on page fault
+;
+; Uses: T1-T4
+
+;Here to address check the user's buffer
+
+SCCBUF:	SAVEAC M		;CHKBPT SMASHES M
+	LOAD J,SJJOB,(SJ)	;IN CASE WE HAVE A PAGE FAULT
+	LOAD T1,SABPT,(SA)	;GET BYTE POINTER TO USER'S BUFFER
+	LOAD T2,SABCT,(SA)	;GET BYTE LENGTH OF USER'S BUFFER
+	MCALL (RG,MSEC0,CHKBPT##);GO ASK VMSER IF THIS BPT IS SAFE
+				;NOTE THAT M HAS BEEN TRASHED.
+	  SCERR %NEADE,RTN,<Address Error>
+	STOR T1,SABPT,(SA)	;STORE THE RESOLVED BYTE POINTER
+	RETSKP			;RETURN TO CALLER
+;Copy back the .NSAFN and .NSACH words to the user's arg blk
+;
+;Call:	SA/ The message block for SA arguments
+;	M/ Pointer to user's arg block for SCGWRD
+;
+;	RET			;ON ERROR, CODE IN T1
+;	RETSKP			;ON SUCCESS
+;
+;We checked before the function that there were at least 2 args
+;passed, so we don't have to check again here.
+
+SCUWAx:SAVEAC <P1,P2>
+	CALL SCGWRD		;GET THE FLAGS AND FUNCTION WORD
+	  SCERR %NEADE,RTN,<Address Error>
+	HRRZ W,T1		;LOAD UP LENGTH FOR SC?WR1
+	LOAD T2,SAFLG,(SA)	;GET SA'S FLAGS
+	STOR T2,NFFLG,+T1	;REPLACE THE OLDER FLAGS
+	CALL SCPWRD		;PUT THE WORD BACK IN THE USER'S SPACE
+	  SCERR %NEADE,RTN,<Address Error>
+
+	LOAD T1,SAACH,(SA)	;GET THE STATUS WORD,,CHANNEL NUMBER
+	OPSTR <HRL T1,>,SAAST,(SA) ;GET THE STATUS IN THE LEFT HALF
+	CALL SCPWR1		;WRITE IT BACK TO USER SPACE
+	  SCERR %NEADE,RTN,<Address Error>
+
+	OPSTR <SKIPE T1,>,SAERR,(SA) ;DID WE GET A FAILURE?
+	  RET			;ERROR RETURN, CODE IN T1
+
+
+;Fall through to next page
+; to copy .NSAA1, .NSAA2 and .NSAA3 as requested
+;From previous page
+
+;Here to copy .NSAA1, .NSAA2 and .NSAA3 as requested
+
+	LOAD P2,SAAFN,(SA)	;LOAD UP THE FUNCTION CODE
+	MOVE P2,SCUTAB-1(P2)	;GET THE FUNCTION'S ARGUMENT TABLE
+	MOVE P1,0(P2)		;GET THE COUNT OF EXPECTED ARGUMENTS
+	LOAD T1,SANAG,(SA)	;GET THE NUMBER OF ARGUMENTS USER GAVE
+	CAIL P1,-2(T1)		;CHOSE SMALLER OF THE TWO
+	MOVEI P1,-2(T1)		; (MINUS .NSAFN AND .NSACH)
+	ADD P2,P1		;POINT TO LAST ARG DESCRIPTOR
+	ADD M,P1		;POINT TO LAST ARG
+	JUMPLE P1,RSKP		;SUCCESS IF NO ARGS TO COPY
+
+SCUWA1:	TMNN APW,(P2)		;SHOULD WE WRITE THIS ARG?
+	JRST SCUWA2		;NO, SKIP WRITE PROCESSOR
+
+	CALL SCGWRD		;GET THE NEXT USER ARGUMENT
+	  SCERR %NEADE,RTN,<Address Error>
+	MOVE T2,T1		;PUT THE ARGUMENT IN T2
+	XMOVEI T1,SA.AA1-1(SA)	;POINT TO ARGUMENTS IN ARG BLOCK
+	ADD T1,P1		;GET THE ONE WE'RE LOOKING AT
+	MOVE T1,(T1)		;GET THE CONTENTS OF SAAAx
+
+	LOAD T3,APDSP,(P2)	;GET THE DISPATCH OFFSET
+	CALL @SCUSDS(T3)	;CALL THE CORRECT ARGUMENT PROCESSOR
+	  RET			;PROPOGATE ERROR RETURN
+
+	CALL SCPWRD		;PLACE THE WORD BACK
+	  SCERR %NEADE,RTN,<Address Error>
+SCUWA2:	SOJ P2,			;LOOP DOWN THE ARG DESCRIPTORS
+	SOJ M,			;LOOP DOWN USER'S ARG LIST TOO
+	SOJG P1,SCUWA1		;LOOP WHILE STILL MORE ARGS
+	RETSKP			;SUCCESS RETURN
+	SUBTTL 	Argument Writers -- SCSCBL - Store Connect Block into User Space
+
+;SCSCBL - Give user a connect block back
+;
+; Call:
+;	T1/ Contents of SAAAx after SCLINK
+;	T2/ Contents of user argument
+;	SJ/ Pointer to Session Control Job Block
+;
+; Return:
+;	RET			;ON AN ADDRESS FAILURE
+;	RETSKP			;ON SUCCESS
+;
+; Uses: T1-T4
+
+SCSCBL:	SAVEAC <M,W,P1,P2>	;GET A COPY OF M AND SAVE SOME PEAS
+	MOVE P2,T2		;SAVE POINTER TO USER'S CONNECT BLK
+	SKIPN M,T2		;GET THE POINTER TO CONNECT BLOCK
+	SCERR %NEABE,RTN,<Argument Block Format Error>
+
+	CALL SCGWRD		;GET ARG BLOCK LENGTH WORD
+	  SCERR %NEADE,RTN,<Address Error>
+	HRRZ W,T1		;SAVE FOR SCPWR1
+
+	LOAD P1,SACBP,(SA)	;MAKE P1 POINT TO THE CONNECT BLOCK
+	LOAD T1,CBNUM,(P1)	;GET THE NODE NUMBER
+	CALL SCTA2N##		;GET THAT NODE'S NAME
+	 SETZ T1,		;DON'T HAVE A NAME, LEAVE IT ZERO LENGTH
+	CALL PUTSX1		; AND PLACE IT AFTER LENGTH WORD
+	  RET			;ERROR, CODE IN T1
+	XMOVEI T2,CB.SRC(P1)	;POINT TO THE SOURCE PROCESS DESCRIPTOR
+	CALL PUTPR1		;PLACE IT IN THE USER'S AREA
+	  RET			;ERROR, CODE IN T1
+	XMOVEI T2,CB.DST(P1)	;THE DESTINATION PROCESS DESCRIPTOR
+	CALL PUTPR1		;PLACE IT IN THE USER'S AREA
+	  RET			;ERROR, CODE IN T1
+	LOAD T1,CBUCT,(P1)	;GET THE USER ID BYTE COUNT
+	XMOVEI T2,CB.UID(P1)	;POINT TO THE STRING
+	CALL PUTST1		;PLACE THE STRING
+	  RET			;ERROR, CODE IN T1
+	LOAD T1,CBPCT,(P1)	;GET THE PASSWORD'S BYTE COUNT
+	XMOVEI T2,CB.PSW(P1)	;POINT TO THE STRING
+	CALL PUTST1		;PLACE IN USER SPACE
+	  RET			;ERROR, CODE IN T1
+	LOAD T1,CBACT,(P1)	;GET THE ACCOUNT NAME BYTE COUNT
+	XMOVEI T2,CB.ACC(P1)	;POINT TO THE STRING
+	CALL PUTST1		; AND PUT IT IN THE USER'S AREA
+	  RET			;ERROR, CODE IN T1
+	LOAD T1,CBCCT,(P1)	;GET THE COUNT OF CONNECT DATA
+	XMOVEI T2,CB.UDA(P1)	;POINT TO THE CONNECT DATA
+	CALL PUTST1		; PLACE IT IN THE USER'S AREA
+	  RET			;ERROR, CODE IN T1
+	MOVE T1,P2		;RESTORE CONNECT BLOCK POINTER
+	RETSKP			; AND RETURN
+	SUBTTL 	Argument Writers -- SCSSBL - Store String Block into User Space
+
+;SCSSBL - Give user a string block back
+;
+; Call:
+;	T1/ Contents of SAAAx after SCLINK (ignored here)
+;	T2/ User pointer to string block
+;	P1/ Pointer to flag word in SCUTAB for function
+;	SJ/ Pointer to Session Control Job Block
+;	M/  Pointer to pointer to string block in user's address space
+;
+; Return:
+;	RET			;ON ADDRESS FAILURE
+;	RETSKP			;ON SUCCESS
+;
+; Uses: T1-T4
+;
+;In this routine, we ignore the contents of SAAAx, since we have a
+;pointer to the string block in SASBP.
+
+SCSSBL:	SAVEAC P1		;SAVE PTR TO USER STRING BLK HERE
+	MOVE P1,T2		;WE'LL NEED THIS LATER
+	LOAD T2,SASBP,(SA)	;POINTER TO STRING BLOCK
+	LOAD T1,SBCNT,(T2)	;GET COUNT OF BYTES WE GOT FROM MESSAGE
+	ADDI T2,SB.DAT		;POINT TO START OF STRING'S DATA
+	CALL PUTSTR		;PUT STRING IN USER'S STRING BLOCK
+	  RET			;ADDRESS ERROR, CODE IN T1
+	MOVE T1,P1		;RESTORE UVA OF STRING BLK FOR SCUWAAx
+	RETSKP			;SUCCESS RETURN
+	SUBTTL 	Argument Writers -- SCSARG, SCSBCT, SCSBPT
+
+;SCSARG -  Store some random argument
+;
+; Call:
+;	T1/ Contents of argument word
+;	SJ/ Pointer to Session Control Job Block
+;
+; Return:
+;	RET			;COULDN'T DO IT
+;	RETSKP			;WITH T1 CONTAINING WHAT TO STORE IN THE
+;				; USER'S ARG BLOCK
+;
+; Uses: T1
+
+SCSBCT:				;NO NEED TO CHECK THIS ON WRITE-BACK
+SCSBPT:				;DITTO
+SCSARG:	RETSKP			;JUST GIVE HIM WHAT HE GAVE US
+	SUBTTL 	Argument Discarders -- SCDARG, SCDCBL, SCDSBL
+
+;SCDARG - Discard a block we just built to check for user page faults
+;
+; Call:
+;	SA/ Pointer to SA block
+;	SJ/ Pointer to Session Control Job Block
+;
+; Return:
+;	RET			;ONLY RETURN
+;
+; Uses: T1
+
+SCDBCT:				;NOTHING TO DO FOR BYTE COUNT
+SCDBPT:				;NOTHING TO DO FOR BYTE POINTER
+SCDARG:	RET			;NOTHING TO DO FOR SINGLE ARG
+
+
+SCDCBL:	OPSTR <SKIPE T1,>,SACBP,(SA) ;IS THERE A CONNECT BLK?
+	  CALL DNFWDS		;YES, FREE THE CONNECT BLOCK
+	SETZRO SACBP,(SA)	;NO MORE CONNECT BLOCK
+	RET
+
+
+SCDSBL:	OPSTR <SKIPE T1,>,SASBP,(SA) ;IS THERE A STRING BLK?
+	  CALL DNFWDS		;YES, FREE THE CONNECT BLOCK
+	SETZRO SASBP,(SA)	;NO MORE STRING BLOCK
+	RET
+	SUBTTL Subroutines -- SCUHBR - Subroutine to do the HIBERs.
+
+;SCUHBR - Called by SCLINK to hibernate
+;
+; Call:
+;	T1/ Pointer to SJB
+;
+; Return:
+;	RET			;ONLY RETURN
+;
+; Uses: T1
+
+
+SCUHBR:	SAVEAC <FREE1,FREE2,MB,MS,F,J,SJ> ;SAVE A FEW ACS
+	MOVE SJ,T1		;POINTER TO SJB
+	SETZM F			;F DOES NOT HOLD PTR TO A DDB!
+	LOAD J,SJJOB,(SJ)	;MONITOR WANTS TO KNOW WHAT JOB THIS IS
+	MOVX T1,EV.DCN		;DECNET EVENT WAIT
+	MCALL (RG,MSEC0,ESLEEP##) ;SCUWAK GETS US OUT OF THIS.
+	RET			;AND RETURN
+
+	SUBTTL Subroutines -- SCUWAK - Subroutine to do the WAKEs.
+
+;SCUWAK - Called when SCLINK thinks we might want to wake the user
+;
+; Call:	T1/ Old Status,,PSI Mask
+;	T2/ New Status,,Channel Number
+;	T3/ Pointer to Session Control Job Block
+;	T4/ Link identifier to pass to SCTWKQ
+;	T5/ ???,,Status Changes
+;
+; Return:
+;	RET			;Tells SCLINK not to queue SLB
+;	RETSKP			;Tells SCLINK to queue SLB for SCTPSQ
+;
+; Uses: T1,T2,T3,T4
+;
+;SCLINK calls this routine (via SAWKA,(SA)) when either the link
+;state has changed or one of the status bits has changed from a
+;zero to a one.
+
+SCUWAK:				;INISAB PASSES ADDR TO SCLINK
+	SAVEAC <FREE1,FREE2,MB,MS,J,P1> ;SAVE A FEW ACS FROM TOPS-10
+	MOVE P1,T3		;POINTER TO SJB
+
+;Note that T4 contains the link identifier we pass to SCTWKQ
+
+	T5==T4+1		;DEFINE T5 FOR INTERFACE WITH DECNET
+	AND T5,T1		;AND CHANGES WITH THE PSI MASK
+	TRNN T5,-1		;ANY INTERESTING CHANGES?
+	JRST SCUWK1		;NO, SKIP PSI
+
+;Here to signal a PSI interrupt.  PSISER will call SCTPSI later
+;to discover the reason, so we offer none here.
+;If the PSI is accepted, we don't have to do a WAKE as well, because
+;PSISER does that for us.
+
+	MOVE T1,T4		;PASS LINK IDENTIFIER TO SCTWKQ
+	CALL SCTWKQ		;ASK SCLINK TO QUEUE THIS LINK FOR SCTPSQ
+	JUMPE T1,SCUWK1		;ALREADY QUEUED; DON'T DO IT AGAIN
+	LOAD J,SJJOB,(P1)	;GET JOB NUMBER WE'RE TO INTERRUPT
+;	SIGNAL C$NSP		;SIGNAL A PSI INTERRUPT
+	HRROI T1,C$NSP		;THIS HAS TO BE DONE BY HAND SINCE XCALL MUST BE EXECUTED
+	XCT NOPISK##		;PSI ENABLED?
+	MCALL (RG,MSEC1,PSICND##) ;SIGNAL
+	  JRST SCUWK1		;HIBER WAKE ALSO IF PSI DIDN'T WAKE
+	JRST SCUWK2		;SKIP ASYNCH I/O WAKE IF PSI DID WAKE
+
+;We have to wake the job anyway, for users with asynchronous I/O
+
+SCUWK1:	LOAD J,SJJOB,(P1)	;GET JOB NUMBER
+	MOVSI T1,IOACE##	;ASYNC IO WAKE BIT (USER CALLS IT HB.RIO)
+	TDNE T1,JBTRTD##(J)	;IS THIS JOB INTERESTED IN SUCH WAKEUPS?
+	MCALL (RG,MSEC0,WAKEJB##);HIBERING ON ASYNC I/O, WAKE IT UP.
+SCUWK2:	LOAD T1,SJJOB,(P1)	;GET JOB NUMBER FOR EWAKE
+	MCALL (RG,MSEC0,EWAKE##);(T1)GET JOB OUT OF EW OR MARK FOR WAKE
+	RET			;AND RETURN
+	PURGE T5		;AND FORGET ABOUT THIS DEFINITION
+	SUBTTL Subroutines -- SCTPSI - Get PSI associated variable
+
+;SCTPSI - Called from PSISER to get associated variable for interrupt
+;
+; Call:	J/ Job Number
+;
+; Return:
+;	T2/ Link Status,,Link Number (Channel Number)
+;				;T2 is zero if error found
+;	RET			;Always
+;
+; Uses: T1,T2,T3,T4
+;
+;Since there is no state zero, if we return a zero in T2 (the
+;value that will be given to the user as PSI's associated variable)
+;we are telling the user that this is a null interrupt.  We should
+;not give null interrupts, of course, but we need some way of passing
+;on errors here...
+
+SCTPSI::
+
+	SEC1			;DO OUR STUFF IN EXTENDED SECTIONS
+
+	SAVEAC <T1,T3,T4,W,M,CX>;PSISER IS PICKY. DECNET TRASHES THESE ACS.
+	IFN <<T4-W+1>!<T4-M+2>>,<PRINTX ?W OR M HAS MOVED. FIX THIS CODE>
+
+;Load up SJ with the SJB pointer to SCLINK
+
+	SKIPN T1,JBTPDB##(J)	;GET POINTER TO JOB'S PDB
+	BUG. CHK,SCMNP2,SCMUUO,SOFT,<No SJB for SCTPSI>,,<
+
+Cause:	This BUG is not documented yet.
+
+>,SCTPSE
+	HRRZS T1		;MAKE IT A SECTION ZERO POINTER (NFYPGS)
+	SKIPN T1,.PDSJB##(T1)	;GET POINTER TO JOB'S SJB FOR SCTPSQ
+	JRST SCTPSE		;NO SJB, SHOULD NOT HAPPEN
+	CALL SCTPSQ		;ASK SCLINK TO DEQUEUE NEXT SLB
+	  JRST SCTPSE		;NONE THERE, RETURN T2/ ZERO
+	TXNN T1,PSMOR		;ANY MORE SLBs NEED INTERRUPTS?
+	RET			;NO, RETURN T2/ STATUS,,CHN NUMBER
+
+	PUSH P,T2		;YES, SAVE T2 FROM PSISER
+				;J IS ALREADY LOADED BY PSISER
+;	SIGNAL C$NSP		;SIGNAL ANOTHER INT AFTER THIS ONE
+	HRROI T1,C$NSP		;DO THIS BY HAND
+	XCT NOPISK##		;PSI ENABLED?
+	MCALL (RG,MSEC1,PSICND##) ;SIGNAL THE INTERRUPT
+	  JFCL			;IGNORE FAIL RETURN (UNLIKELY)
+	POP P,T2		;RESTORE ASSOCIATED VARIABLE FOR PSISER
+	RET			;RETURN T2/ STATUS,,CHN NUMBER
+
+;Here on error
+
+SCTPSE:	MOVEI T2,0		;ERROR RETURN, GIVE USER NULL INTERRUPT
+	RET
+
+	SUBTTL	Subroutines -- SCGWRD & SCPWRD
+
+; Calls:
+;	T1/ Word to write for SCPWRD & SCPWR1
+;	M/  User Address to GET/PUT
+;	W/ Remaining length of user arg block
+;	SJ/ Pointer to Session Control Job Block
+;	SA/ Pointer to Message Block used for SA args
+;
+; Return:
+;	RET			;ADDRESS ERROR, CALLER MUST HANDLE IT
+;				; SA BLOCK HAS BEEN DEALLOCATED
+;	RETSKP			;WITH T1 HOLDING SCGWRD/SCGWR1 WORD
+;
+; Uses: T1
+;
+;When the caller reads the length (first) word of a user arg block,
+;s/he is expected to HRRZ W,T1 afterwards for these routines.
+;
+;Calls to SCGWRD and SCPWRD are assumed to know whether or not there
+;is room, eg, they are used to get/put the length word.
+;Calls to SC?WR1 are checked for room before they are executed.
+
+IFN R-CX,<PRINTX ?SCGWRD needs CX and R to be the same AC>
+;These routines do not save R, assuming that it is CX, the super-temp.
+
+SCGWR1:	ADDI M,1		;GET THE NEXT WORD
+	SOJLE W,SCGW.1		;LEAVE IF NO MORE TO READ
+SCGWRD:
+	LOAD J,SJJOB,(SJ)	;SET UP J IN CASE OF PAGE FAULT
+	MOVE R,.CPADR##		;GETWRD NEEDS R SET UP
+	MCALL (RG,MSEC1,GETWRD##) ;YES, CALL STANDARD TOPS10 GET WORD
+	RET			;BAD RETURN
+	RETSKP			;SKIP RETURN
+
+SCGW.1:	SETZ T1,		;NO, RETURN ZERO
+	RETSKP			;SUCCESS RETURN
+
+
+
+SCPWR1:	ADDI M,1		;PUT IN THE NEXT WORD
+	SOJLE W,SCGW.1		;LEAVE IF NO MORE ROOM TO WRITE
+SCPWRD:	LOAD J,SJJOB,(SJ)	;SET UP J IN CASE OF PAGE FAULT
+	MOVE R,.CPADR##		;PUTWRD NEEDS R SET UP
+	MCALL (RG,MSEC1,PUTWRD##) ;CALL STANDARD TOPS10 PUT WORD
+	RET			;NON-SKIP RETURN
+	RETSKP			;SKIP RETURN
+	SUBTTL	Subroutines -- GETPRO - Get process block
+
+;GETPRO - Transfer user's process block to a portion of internal connect block
+;
+; Call:
+;	T1/ Pointer to user's process block (destination or source)
+;	T2/ Pointer to some portion of the internal connect block
+;
+; Return:
+;	RET			;ON ERROR WITH T1 CONTAINING ERROR CODE
+;	RETSKP			;ON SUCCESS
+;
+; Uses: T1-T4
+
+GETPRO:	SAVEAC <M,W,P1,P2>	;GET OUR OWN M AND SAVE A P
+	MOVE P2,T2		;SAVE THE POINTER TO INTERNAL CBLOCK
+	SKIPN M,T1		;SET UP TO GET WORDS FROM USER'S BLOCK
+	RETSKP			;LEAVE EMPTY BLOCK IF NO USER POINTER
+;LENGTH
+	CALL SCGWRD		;GET THE LENGTH WORD
+	  SCERR %NEADE,RTN,<Address Error>
+	HRRZ W,T1		;TELL SC?WR1 LENGTH OF ARG BLOCK
+	JUMPE W,RSKP		;LEAVE EMPTY BLK IF USER'S IS ZERO LONG
+	CAIL W,PBL.MN		;RANGE CHECK THE LENGTH
+	CAILE W,PBL.MX
+	SCERR %NEPBL,RTN,<Process block length error>
+	STOR W,PBSIZ,(P2)	;STORE THE LENGTH
+;FORMAT TYPE
+	CALL SCGWR1		;GET THE FORMAT TYPE
+	  SCERR %NEADE,RTN,<Address Error>
+	STOR T1,PBFOR,(P2)	;STORE IT IN THE INTERNAL CONNECT BLOCK
+	CAIL T1,FRM.0		;RANGE CHECK THE
+	CAILE T1,FRM.MX		; FORMAT TYPE
+	SCERR %NEBFT,RTN,<Bad format type in process block>
+;OBJECT TYPE
+	CALL SCGWR1		;GET THE OBJECT TYPE
+	  SCERR %NEADE,RTN,<Address Error>
+	TMNN PBFOR,(P2)		;IS THIS A ZERO FORMAT TYPE?
+	STOR T1,PBOBJ,(P2) 	;YES, STORE THE OBJECT TYPE
+
+;Fall through to next page
+;From previous page
+
+IFN <PB.USR-PB.GRP>,<IF2,<PRINTX ?PB.USR and PB.GRP must be the same>>
+
+;PPN
+	CALL SCGWR1		;GET THE PPN (GRPCODE AND USRCOD)
+	  SCERR %NEADE,RTN,<Address Error>
+	AND T1,[177777,,177777]	;LIMIT TO 16 BITS IN EITHER HALF
+	LOAD T2,PBFOR,(P2)	;GET THE FORMAT TYPE AGAIN
+	CAIN T2,FRM.2		;IS IT A FORMAT TWO?
+	MOVEM T1,PB.USR(P2)	;YES, PRINTX ABOVE CHECKS THIS MOVEM
+;TASK NAME
+	CALL SCGWR1		;GET THE POINTER TO THE STRING BLOCK
+	  SCERR %NEADE,RTN,<Address Error>
+	XMOVEI T2,PB.NAM(P2)	;SETUP TO STORE STRING IN INT. CBLOCK
+	CALL GETSTR		;STORE IT
+	  SCERR %NEADE,RTN,<Address Error>
+	STOR T1,PBNCT,(P2)	;STORE STRING LENGTH TOO
+	RETSKP			;SUCCESS RETURN
+	SUBTTL	Subroutines -- GETSTR - Get a string block
+
+;GETSTR -  Transfer user's string block to internal string block
+;
+; Call:
+;	T1/ Pointer to the user's string block
+;	T2/ Pointer to internal block to store string in (not a byte pointer)
+;
+; Return:
+;	RET			;ADDRESS FAILURE
+;	RETSKP			;SUCCESS, T1/ BYTE COUNT
+;
+; Uses: T1-T4
+
+GETSTR:	MOVEI T3,SB.MAX		;DEFAULT MAXIMUM LENGTH OF STRING
+GETST1:	SAVEAC <M,W,P1,P2>	;GET A COPY OF M AND SAVE TWO PS
+	SKIPN M,T1		;SET UP TO SCGWRD FROM HERE
+	RETSKP			;DON'T DO ANYTHING IF NO POINTER GIVEN
+
+	MOVE P2,T2		;SAVE THE INTERNAL SBLOCK POINTER
+	CALL SCGWRD		;GET THE COUNT
+	  RET			;ADDRESS ERROR, CALLER WILL DEAL W/ IT
+	HRRE W,T1		;TELL SCGWR1 LENGTH OF ARG BLOCK
+	HLRZS T1		;ISOLATE BYTE COUNT IN RIGHT HALF
+	JUMPE T1,RSKP		;LEAVE NOW IF NOTHING TO DO
+	CAMLE T1,T3		;WILL THIS FIT IN A STRING BLOCK?
+	RET			;NO, ADDRESS ERROR
+
+	SAVEAC T1		;RETURN BYTE COUNT ON EXIT
+
+	MOVEI P1,3(T1)		;SET TO ROUND UP ON DIVIDE
+	ASH P1,-2		;CHANGE BYTE COUNT TO WORD COUNT
+GETS.1:	CALL SCGWR1		;GET NEXT WORD FROM USER'S STR BLK
+	  RET			;CALLER WILL HANDLE ADDRESS CHECK
+	MOVEM T1,(P2)		;STORE IN MONITOR BUFFER
+	AOJ P2,			;WALK UP THE MONITOR BUFFER
+	SOJG P1,GETS.1		;LOOP OVER ALL WORDS SPECIFIED
+	RETSKP			;SUCCESS RETURN, SEE SAVEAC T1 ABOVE
+	SUBTTL Subroutines -- GETSXR - Get string block to sixbit word
+
+;GETSXR -  Transfer user's string block to internal sixbit word
+;
+; Call:
+;	T1/ Pointer to the user's string block
+;
+; Return:
+;	T1/ SIXBIT word (usually node name)
+;
+; Uses:
+;	T1-T4
+
+GETSXR:	SAVEAC <M,W,P1,P2,F>	;WE USE A BUNCH OF ACS
+	SKIPN M,T1		;PUT POINTER WHERE SCGWRD CAN FIND IT
+	RETSKP			;IF NO POINTER, SIMPLY RETURN.
+	CALL SCGWRD		;GET STRING BLOCK HEADER
+	 RET			;FAIL
+	HRRE W,T1		;LENGTH OF STRING BLOCK IN WORDS.
+	HLRZ P1,T1		;NUMBER OF BYTES TO FETCH
+	CAILE P1,6		;WILL NAME FIT IN A SIXBIT WORD
+	 RET			;NO.
+	SETZ P2,		;CLEAR DESTINATION WORD
+	MOVE F,[POINT 6,P2]	;BYTE POINTER TO SAVE SIXBIT BYTES
+GETSX1:	JUMPLE P1,GETSX9	;IF NO MORE BYTES TO DO, EXIT
+	CALL SCGWR1		;MORE BYTES TO DO, GET A WORD TO PROCESS
+	 RET			;FAIL
+	MOVE T4,[POINT 8,T1]	;BYTE POINTER INTO SOURCE STRING
+	MOVEI T3,4		;MAX NUMBER OF BYTES IN A WORD
+	CAMLE T3,P1		;ARE THAT MANY BYTES LEFT?
+	 MOVE T3,P1		;NO, TAKE THE NUMBER THAT ARE LEFT
+	SUB P1,T3		;DECREMENT NUMBER OF BYTES LEFT
+GETSX2:	ILDB T2,T4		;GET A BYTE
+	CAILE T2,^O140		;IS IT LOWER CASE?
+	 SUBI T2,^O40		;YES, MAKE IT UPPER CASE
+	SUBI T2,^O40		;MAKE IT SIXBIT
+	IDPB T2,F		;SAVE IN DESTINATION WORD
+	SOJG T3,GETSX2		;AND LOOP FOR ANOTHER BYTE
+	JRST GETSX1		;AND LOOP FOR ANOTHER WORD
+
+GETSX9:	MOVE T1,P2		;SIXBIT WORD.
+	RETSKP			;RETURN SUCCESS
+
+
+
+	SUBTTL Subroutines -- PUTPRO - Write Process Block to User's Space
+
+;PUTPRO - Write Process Block to User's Space
+;
+; Call:
+;	T2/ Pointer to the Process Block portion of the CBLOCK
+;	M/  Pointer to the next argument in the CBLOCK
+;	W/ Remaining Length of block M points at
+;
+; Return:
+;	RET			;ON ERROR, CODE IN T1
+;	RETSKP			;ALL IS OK
+;
+; Uses: T1-T4
+
+PUTPR1:	ADDI M,1		;INCR FIRST, LIKE SCGWR1,SCPWR1, ETC
+	SOJLE W,RSKP		;LEAVE IF NO ADDRESS SUPPLIED
+PUTPRO:	SAVEAC <M,W,P1,P2>
+	MOVE P2,T2		;SAVE THE POINTER TO PROCESS BLOCK
+	CALL SCGWRD		;GET THE NEXT ARG POINTER FROM CBLOCK
+	  SCERR %NEADE,RTN,<Address Error>
+	MOVE M,T1		;SET UP THE POINTER TO PBLOCK
+
+	CALL SCGWRD		;GET THE USER'S LENGTH WORD
+	  SCERR %NEADE,RTN,<Address Error>
+	HRRZ W,T1		;SAVE LENGTH IN WORDS
+
+;FORMAT TYPE
+	LOAD T1,PBFOR,(P2)	;GET THE FORMAT TYPE
+	CALL SCPWR1		;PLACE THIS WORD AFTER COUNT WORD
+	  SCERR %NEADE,RTN,<Address Error>
+	LOAD T1,PBOBJ,(P2)	;GET THE OBJECT TYPE
+;OBJECT TYPE
+	CALL SCPWR1		;PLACE THE OBJECT TYPE IN USER SPACE
+	  SCERR %NEADE,RTN,<Address Error>
+;TASK NAME
+IFN <PB.USR-PB.GRP>,<IF2,<PRINTX ?PB.USR and PB.GRP must be the same>>
+	MOVE T1,PB.USR(P2)	;PBUSR AND PBGRP ARE CHECK TO BE THE SAME
+	CALL SCPWR1		;STORE PPN (USER AND GROUP)
+	  SCERR %NEADE,RTN,<Address Error>
+	LOAD T1,PBNCT,(P2)	;GET THE BYTE COUNT
+	XMOVEI T2,PB.NAM(P2)	;POINT TO THE STRING
+	CALL PUTST1		;PLACE IT BACK IN USER'S SPACE
+	  RET			;BUG. ALREADY GIVEN FOR ADDRESS ERROR
+	RETSKP			;ALL IS OK
+	SUBTTL Subroutines -- PUTSTR - Write String Block to User's Space
+
+;PUTSTR - Write String Block to User's Space
+;
+; Call:
+;	T1/ Byte Count of String
+;	T2/ Pointer (not a byte pointer) to String
+;	M/  Pointer to Pointer to User's String Block
+;	W/ Remaining Length of block M points at
+;
+; Return:
+;	RET			;ON ADDRESS ERROR, CALLER TO HANDLE IT
+;	RETSKP			;ON SUCCESS
+;
+; Uses: T1-T4
+
+PUTST1:	ADDI M,1		;STR BLK POINTER IS IN NEXT USER WORD
+	SOJLE W,RSKP		;LEAVE IF NO ADDRESS SUPPLIED
+PUTSTR:	SAVEAC <M,W,P1,P2>
+	DMOVE P1,T1		;SAVE BYTE COUNT,BYTE POINTER
+	CALL SCGWRD		;GET PTR TO STRING BLOCK
+	  SCERR %NEADE,RTN,<Address Error>
+	SKIPN M,T1		;GET OUR M SET UP
+	RETSKP			;OOPS, COPIED NOTHING
+
+;There should be a count in the first word of the string block
+;indicating the maximum count of bytes to place in the string.
+
+	CALL SCGWRD		;GET THE COUNT WORD
+	  SCERR %NEADE,RTN,<Address Error>
+	HRRZ W,T1		;TELL SCPWR1 ABOUT THE LENGTH
+	HRRZ T3,T1		;GET WORD COUNT AGAIN
+	SOJLE T3,RSKP		;SUBTRACT ONE DUE TO LENGTH WORD
+	ASH T3,2		;MULT BY FOUR TO GET BYTE COUNT
+	CAMLE P1,T3		;THERE ENOUGH ROOM IN THE USER'S BLOCK?
+	MOVE P1,T3		;NO, USE HIS MAX
+	HRL T1,P1		;GET THE BYTE COUNT IN LEFT HALF
+				;WORD LENGTH STILL IN THE RIGHT HALF
+	CALL SCPWRD		;PLACE IT IN THE COUNT WORD
+	  SCERR %NEADE,RTN,<Address Error>
+	ADDI P1,3		;MAKE FOLLOWING DIVIDE ROUND UP
+	ASH P1,-2		;CONVERT BYTE COUNT TO WORD COUNT
+
+;Note that we come all the way to here even if the byte count is zero
+;because we have to put the count in the user's string block.
+
+PUTS.1:	SOJL P1,RSKP		;SUCCESS WHEN WE'VE COPIED ALL THERE IS
+	MOVE T1,(P2)		;GET NEXT WORD FROM MONITOR BUFFER
+	CALL SCPWR1		;PUT IT IN NEXT WORD OF USER'S STR BLK
+	  SCERR %NEADE,RTN,<Address Error>
+	AOJA P2,PUTS.1		;POINT TO NEXT SOURCE WORD AND TRY IT
+	SUBTTL Subroutines -- PUTSTR - Write SIXBIT word to user's String Block
+
+;PUTSXR - Write SIXBIT word into String block in user space
+;
+; Call:
+;	T1/ SIXBIT word (usually node name)
+;	M/  Pointer to Pointer to User's Arg Block
+;	W/ Remaining Length of block M points at
+;
+; Return:
+;	RET			;ON ADDRESS ERROR, CALLER TO HANDLE IT
+;
+; Uses T1-T4
+;
+
+PUTSX1:	ADDI M,1		;POINT TO NEXT LOCATION IN ARG BLOCK
+	SOJLE W,RSKP		;IF NOT IN BLOCK, JUST RETURN
+PUTSXR:	SAVEAC <M,W,P1,P2,F>	;SOME ACS WE USE
+	MOVE P1,T1		;SAVE SIXBIT WORD
+	CALL SCGWRD		;GET THE ENTRY FOR THIS STRING BLOCK
+	 SCERR %NEADE,RTN,<Address error>
+	SKIPN M,T1		;MAKE SURE WE GOT SOMETHING
+	 RETSKP			;USER DOESN'T WANT THE NODE NAME
+	CALL SCGWRD		;GET THE STRING BLOCK HEADER WORD
+	 SCERR %NEADE,RTN,<Address error>
+	HRRZ W,T1		;NUMBER OF WORDS IN STRING BLOCK
+
+;COUNT THE CHARACTERS IN SIXBIT WORD
+	MOVSI T2,770000		;MASK FOR SIXBIT CHARACTER
+	TDZA P2,P2		;START OFF COUNT AT ZERO BYTES
+PUTSX2:	LSH T2,-6		;SHIFT MASK BY ONE CHARACTER
+	TDNE T2,P1		;DO WE HAVE A CHARACTER IN THIS POSITION?
+	 AOJA P2,PUTSX2		;YES, COUNT IT AND TRY FOR NEXT CHARACTER
+	HRL T1,P2		;RETURN THE NUMBER OF BYTES WE ARE GIVING
+	CALL SCPWRD		; IN THE HEADER WORD OF THE STRING BLOCK
+	 SCERR %NEADE,RTN,<Address error>
+	MOVE F,[POINT 6,P1]	;BYTE POINTER TO SIXBIT WORD
+PUTSX3:	JUMPE P2,RSKP		;RETURN
+	MOVE T4,[POINT 8,T1]	;BYTE POINTER TO EIGHTBIT DESTINATION WORD
+	SETZ T1,		;CLEAR DESTINATION WORD
+	MOVEI T3,4		;NUMBER OF BYTES WHICH WILL FIT IN FIRST WORD
+	CAMLE T3,P2		;GREATER THAN AVAILABLE BYTES?
+	 MOVE T3,P2		;YES, SET TO LOWER LIMIT
+	SUB P2,T3		;DECRMENT NUMBER OF BYTES USED
+PUTSX4:	ILDB T2,F		;GET A BYTE FROM SIXBIT WORD
+	ADDI T2,^O40		;MAKE IT ASCII
+	IDPB T2,T4		;STORE IT IN DESTINATION WORD
+	SOJG T3,PUTSX4		;LOOP FOR MORE CHARACTERS
+	CALL SCPWR1		;COPY THE WORD TO USER'S BLOCK
+	 SCERR %NEADE,RTN,<Address error>
+	JRST PUTSX3		;AND LOOP ON ANOTHER WORD
+
+	U=:SJ			;WE USE U AS AN AC BELOW
+	PURGE SJ		;WE DON'T USE SJ ANY MORE
+
+	SUBTTL DNET. UUO -- Argument block
+
+;FLAGS WORD AT BEGINNING OF EACH ARGUMENT BLOCK
+
+BEGSTR FL
+	FIELD FLA,6		;FLAGS FIELD - 6 BITS
+	  BIT FLS		; STEP
+	  BIT FLK		; KNOWN
+	  BIT FLR		; ACTIVE (REACHABLE)
+	  BIT FLE		; EXECUTOR
+	FILLER 6		;RESERVED
+	FIELD FNC,6		;FUNCTION CODE
+	  XP .DNLNN,1		;LIST NODE NAMES
+	  XP .DNNDI,2		;RETURN NODE INFO
+	  XP .DNSLS,3		;SHOW LINKS STATUS
+	HWORD ARG		;LENGTH OF ARGUMENT BLOCK
+ENDSTR
+
+;WORDS IN FUNCTION .DNNDI -
+
+BEGSTR D1			;ROUTER INFO, WORD .DNRTR
+	FIELD RCH,1		;REACHABILITY
+	FILLER 9		;RESERVED
+	FIELD HOP,8		;HOPS TO NODE
+	FILLER 2		;RESERVED
+	FIELD CST,16		;COST TO NODE
+ENDSTR
+
+BEGSTR D2			;LLINKS INFO, WORD .DNLLI
+	FIELD VLD,1		;VALIDITY BIT
+	FILLER 8		;RESERVED
+	FIELD LNK,9		;ACTIVE LINKS
+	HWORD DLY		;MILLISECONDS DELAY
+ENDSTR
+
+BEGSTR DS			;.DNSLS ARGUMENT BLOCK
+;	WORD FLA		;FLAGS, DESCRIBED ABOVE
+;
+;	HWORD JOB		;JOB WHICH CHANNEL BELONGS TO
+;	HWORD CHN		;CHANNEL
+
+	WORD NOD		;NODE NAME FOR CONNECT.
+
+	HWORD DOB		;DESTINATION OBJECT TYPE
+	HWORD SOB		;SOURCE OBJECT TYPE
+
+	HWORD LSW		;LINK STATUS WORD
+	HWORD STA		;SIXBIT STATE
+
+	HWORD IQT		;INPUT QUOTA
+	HWORD OQT		;OUTPUT QUOTA
+
+	WORD SEG		;SEGMENT SIZE
+
+	HWORD XMF		;XMIT FLOW CONTROL
+	HWORD RCF		;RECV FLOW CONTROL
+
+	HWORD MRC		;MESSAGES RECEIVED
+	HWORD MXM		;MESSAGES TRANSMITTED
+
+	WORD MPR		;MONITOR PROCESS WORD
+
+ENDSTR
+
+	SUBTTL DNET. UUO -- Errors
+
+DEFINE DNERR(TXT,LONG),<
+	JRST [	MOVX T1,DN'TXT'%
+		RET]
+>
+
+;Error codes.
+	XP DNADE%,1		;Address error
+	XP DNWNA%,2		;Wrong number of arguments
+	XP DNIJN%,3		;Illegal job number
+	XP DNFNE%,4		;Illegal function number
+	XP DNILF%,5		;Illegal flag set
+	XP DNNSN%,6		;No such node name
+	XP DNNSC%,7		;No such channel
+	XP DNNDA%,10		;Node is in different area
+
+
+	SUBTTL DNET. UUO -- Processor
+
+;DNET - Main entry from UUOCON
+;Call
+;	From UUOCON,
+;		T1/ Contents of AC
+;		M/  MUUO as executed
+;Return
+;	RET		;On failure, error code stored in user's AC
+;	RETSKP		;on success
+;
+;Note that this code runs in section one, since most of DECnet-36's
+;data base is in extended sections. There are a number of places we
+;call routines which must run in section zero; Be careful when modifying
+;code here.
+
+	INTERNAL DNET
+	XRENT DNET
+
+	CALL DNETCM		;CALL PROCESSOR (KLUDGE FOR SAVEAC)
+	 JRST [MCALL (RG,MSEC0,STOTAC##) ;STORE ERROR CODE IN USER'S AC
+	       RET]
+	RETSKP			;SUCCESS
+
+DNETCM:	SAVEAC <M,W,P1>		;PRESERVE ALL ACS
+	HRR M,T1		;SET UP POINTER TO UUO ARGUMENT BLOCK
+	MCALL (RG,MSEC1,GETWRD##) ;GET FIRST WORD OF ARGUMENT BLOCK
+	 DNERR ADE,<Address check>
+	MOVE P1,T1		;SAVE THIS WORD FOR POSTERITY
+	LOAD T1,FLARG,+P1	;GET THE LENGTH OF THE ARGUMENT BLOCK
+	SOSG W,T1		;SET UP W WITH NUMBER OF WORDS LEFT IN BLOCK
+	 DNERR WNA,<Wrong number of arguments> ;WE'VE USED UP ONE ALREADY.
+	LOAD T1,FLFNC,+P1	;GET THE FUNCTION CODE
+	CAXL T1,.DNLNN		;RANGE
+	CAXLE T1,.DNSLS		; CHECK
+	 DNERR FNE,<Illegal function>
+	JRST @.+1-.DNLNN(T1)	;DISPATCH ON FUNCTION
+	 IFIW DNULNN		;.DNLNN
+	 IFIW DNUNDI		;.DNNDI
+	 IFIW DNUSLS		;.DNSLS
+
+	SUBTTL DNET. uuo -- .DNLNN - List node names
+;DNULNN - Return list of node names
+;Call
+;	M/ Pointer to uuo argument block
+;	W/ Count of words left in block
+;	P1/Flags word of argument block
+;Return
+;	RET		;On failure, T1 contains error code
+;	RETSKP		;On success
+;
+
+DNULNN:	SAVEAC <P2,P3,P4>	;SAVE ACS
+	LOAD T1,FLFLA,+P1	;GET FLAGS FOR FUNCTION
+	TXNE T1,  <FL%FLK!FL%FLR!FL%FLE> ;MAKE SURE ONE OF THESE IS LIT
+	TXNE T1,^-<FL%FLK!FL%FLR!FL%FLE> ;AND MAKE SURE NOTHING ELSE IS
+	 DNERR ILF,<Illegal flag set>
+	TXNE T1,FL%FLE		;LIMITED TO EXECUTOR?
+	 MOVX P2,<1B1>		;YES, SET FLAG FOR LOCAL [RNLCL]
+	TXNE T1,FL%FLR		;LIMITED TO ACTIVE (REACHABLE)?
+	 MOVX P2,<1B0>		;YES, SET FLAG FOR REACHABLE [RNRCH]
+	TXNE T1,FL%FLK		;LIMITED TO KNOWN?
+	 MOVX P2,-1		;YES, MAKE SURE NON-ZERO WORD.
+	SETZ T1,		;CLEAN
+	CALL DNPNWR		;STORE A ZERO IN .DNCNT TEMPORARILY
+	 DNERR WNA,<Wrong number of arguments>
+	MOVE P4,M		;SAVE POINTER TO .DNCNT WORD
+	SETZ P3,		;START AT NODE 0. (HOME AREA)
+DNULN3:	AOS T2,P3		;BUMP NODE NUMBER
+	ADD T2,RTRNRV##		;POINT TO WORD IN ROUTER VECTOR
+	TDNN P2,(T2)		;TEST ROUTER FLAGS FOR APPLICABILITY
+	 JRST DNULN9		;NOT APPLICABLE TO US, STEP TO NEXT
+	MOVE T1,P3		;GET NODE NUMBER
+	CALL SCTA2N		;CONVERT NODE NUMBER INTO NODE NAME
+	 SKIPA			;NO NAME, TEST IF REACHABLE
+	JRST DNULN8		;HAVE NAME, GO STORE IN ARG BLOCK
+	MOVE T2,P3		;GET NODE NUMBER AGAIN
+	ADD T2,RTRNRV##		;POINT TO WORD IN ROUTER VECTOR
+	SKIPL (T2)		;IF [RNRCH] IS SET, NODE IS "ACTIVE"
+	JRST DNULN9		;NO - IGNORE THIS NODE
+	MOVE T1,P3		;COPY NODE NUMBER IN PLACE OF NAME
+	MOVE T2,RTRHOM		;INCLUDE HOME AREA
+	DPB T2,[POINTR (T1,RN%ARE)] ;...
+DNULN8:	CALL DNPNWR		;PUT THIS NAME ON LIST RETURNED
+	 TRN			;IGNORE FAILURE - WE STILL WANT TO COUNT
+DNULN9:	CAMG P3,RTRMXN##	;WILL WE REACH MAXIMUM NODE NUMBER?
+	 JRST DNULN3		;NO, LOOP AND GET NEXT
+	SUB M,P4		;NUMBER OF NODE NAMES WE PUT AWAY.
+	UMOVEM M,0(P4)		;STORE NUMBER OF NODES IN ARG BLOCK.
+	RETSKP			;AND RETURN HAPPILY.
+
+	SUBTTL DNET. uuo -- .DNNDI - Return node info
+;DNUNDI - Return detailed info about a node
+;Call
+;	M/ Pointer to uuo argument block
+;	W/ Count of words left in block
+;	P1/Flags word of argument block
+;Return
+;	RET		;On failure, T1 contains error code
+;	RETSKP		;On success
+;
+
+DNUNDI:	SAVEAC <F,U,P2,P3>	;SAVE ACS
+	LOAD T1,FLFLA,+P1	;GET FLAGS
+	TXNE T1,FL%FLS		;IS STEP SET?
+	TXNE T1,<FL%FLK!FL%FLR!FL%FLE> ;YES, MAKE SURE AT LEAST ONE QUALIFIER
+	TXNE T1,^-<FL%FLS!FL%FLK!FL%FLR!FL%FLE> ;MAKE SURE NO EXTRANEOUS BITS
+	 DNERR ILF,<Illegal flag set>
+	CALL DNGNWR		;GET THE NODE NAME
+	 DNERR WNA,<Wrong number of arguments>
+	TXNE P1,FLFLS		;STEP SET?
+	JUMPE T1,DNUND2		;IF SO AND NODE NAME 0, SKIP CONVERSION
+	TLNN T1,-1		;ANYTHING IN LEFT HALF?
+	JRST DNUND1		;IF NOT, MUST BE AN ADDRESS
+	CALL SCTN2A##		;CONVERT NAME TO ADDRESS
+	 DNERR NSN,<No such node name>
+DNUND1:	LDB T2,[POINTR(T1,RN%ARE)]	;GET AREA NUMBER
+	SKIPE T2		;DEFAULT TO OUR AREA?
+	CAMN T2,RTRHOM##	;OR SPECIFYING OUR HOME AREA?
+	SKIPA			;YES, ALL OK
+	 DNERR NDA,<Node is in different area>
+	ANDX T1,RN%NOD		;MASK TO JUST NODE WITHIN AREA
+	CAMLE T1,RTRMXN		;CHECK FOR OUT OF RANGE
+	DNERR NSN,<No such node name>
+DNUND2:	MOVE P2,T1		;SAVE NODE NUMBER SOMEWHERE SAFE
+	TXNN P1,FLFLS		;STEP SET?
+	 JRST DNUND4		;NO, SKIP STEP CODE
+	TXNE P1,FLFLE		;LIMITED TO EXECUTOR?
+	 MOVX T3,<1B1>		;YES, SET FLAG FOR LOCAL [RNLCL]
+	TXNE P1,FLFLR		;LIMITED TO ACTIVE (REACHABLE)?
+	 MOVX T3,<1B0>		;YES, SET FLAG FOR REACHABLE [RNRCH]
+	TXNE P1,FLFLK		;LIMITED TO KNOWN?
+	 MOVX T3,-1		;YES, MAKE SURE NON-ZERO WORD.
+DNUND3:	AOS T2,P2		;BUMP NODE NUMBER
+	CAMLE T2,RTRMXN##	;BEYOND MAXIMUM NODE NUMBER?
+	 JRST [	SETZ T1,	;NODE NAME OF ZERO
+		MCALL (RG,MSEC1,PUTWRD##) ;STORE WORD
+		 DNERR ADE,<Address error>
+		RETSKP]		;AND RETURN
+	ADD T2,RTRNRV##		;POINT TO ENTRY IN ROUTER VECTOR
+	TDNN T3,(T2)		;TEST FOR OUT CONDITION
+	 JRST DNUND3		;NOT GOOD, TRY FOR ANOTHER
+DNUND4:	MOVE T1,RTRHOM		;SET UP CORRECT AREA NUMBER
+	DPB T1,[POINTR (P2,RN%ARE)] ;...
+	MOVE T1,P2		;GET NODE NUMBER
+	CALL SCTA2N		;CONVERT NODE NUMBER INTO NODE NAME
+	 MOVE T1,P2		;USE NODE NUMBER IF NO NODE NAME
+	MCALL (RG,MSEC1,PUTWRD##) ;STORE NODE NAME BACK IN ARG BLOCK
+	 DNERR ADE,<Address error>
+	MOVE T2,P2		;COPY NODE ADDRESS
+	ANDX T2,RN%NOD		;MASK TO JUST NODE NUMBER WITHIN AREA
+;.DNRTR
+	SETZ T1,		;CLEAR DESTINATION WORD
+	ADD T2,RTRNRV##		;POINT TO ROUTER WORD
+	LDB T3,RTNRCH##		;GET REACHABILITY OF THIS NODE
+	STOR T3,D1RCH,+T1	;SET THE REACHABILITY BIT
+	LDB T3,RTNHOP##		;GET NUMBER OF HOPS
+	STOR T3,D1HOP,+T1	;STORE HOPS
+	LDB T3,RTNCST##		;GET COST TO NODE
+	STOR T3,D1CST,+T1	;STORE COST
+	CALL DNPNWR		;STORE THIS IN USER'S ARGUMENT BLOCK
+	 RETSKP			;MUST BE DONE, EXIT SUCCESSFULLY
+;.DNLLI
+	SETZ U,			;CLEAR DESTINATION WORD
+	MOVE T1,P2		;SET UP NODE NUMBER FOR SRHNOD
+	CALL SRHNOD##		;SEARCH FOR THE LLINKS NODE DATABASE
+	 JRST DNUND5		;NO LLINKS DATABASE FOR NODE, SKIP THIS
+	LOAD T3,NNDLY,(T1)	;GET THE DELAY
+	STOR T3,D2DLY,+U	;SAVE IN DESTINATION WORD
+	LOAD T3,NNLKC,(T1)	;GET THE NUMBER OF LINKS TO NODE
+	STOR T3,D2LNK,+U	;SAVE...
+	TQO D2VLD,+U		;INDICATE VALID INFORMATION
+DNUND5:	MOVE T1,U		;GET WORD TO STORE
+	CALL DNPNWR		;PUT THIS WORD IN USERS ARG BLOCK
+	 RETSKP			;END OF ARG BLOCK, RETURN
+;.DNADR
+	MOVE T1,P2		;COPY NODE ADDRESS
+	CALL DNPNWR		;STORE ADDRESS
+	 RETSKP			;IF WON'T FIT, FINISHED.
+;.DNCKT
+	MOVE T2,P2		;GET NODE NUMBER
+	ANDX T2,RN%NOD		;MASK TO JUST NODE NUMBER WITHIN AREA
+	ADD T2,RTRNRV##		;POINT TO WORD IN NORMAL ROUTING VECTOR
+	LDB T3,RTNRCH##		;GET THE REACHABILITY BIT
+	LDB T1,RTNLCL##		;GET THE LOCAL BIT
+	ANDCM T3,T1		;TRUTH TABLE
+	JUMPE T3,[
+		SKIPE T1	;WAS IT LOCAL?
+		MOVE T1,[ASCII \local\] ;YES
+		CALL DNPNWR	;STORE INFO IN ARG BLOCK
+		RETSKP		;END OF ARG BLOCK, FINIT.
+		JRST DNUND8]	;AND CLEAN UP.
+	MOVE T1,P2		;GET NODE NUMBER
+	CALL RTNLID##		;GET LINE ID OF ROUTE TO NODE
+	  JRST DNUND8		;NO LINE ID? OH WELL
+	STKVAR <<TXTBUF,5>>	;TEMPORARY AREA FOR CIRCUIT NAME
+	MOVEI T2,TXTBUF		;MAKE A LOCAL POINTER TO TXTBUF
+	HRLI T2,(POINT 8,)	;BYTE POINTER TO BUFFER
+	IFN <<T4-W+1>!<T4-M+2>>,<PRINTX ?W OR M HAS MOVED. FIX THIS CODE>
+	CALL [SAVEAC <M,W>	;TRASHED BY NTMAN
+	      CALLRET NMXC2N##]	;CONVERT LINE ID TO NAME
+	 RET			;SOMETHING WRONG. NMXC2N BUGCHKED
+	MOVE P1,[POINT 8,TXTBUF];(OK TO TRASH P1 NOW - DON'T NEED FLAGS)
+	ILDB F,P1		;GET NUMBER OF BYTES
+	SETZ U,			;CLEAR TEMPORARY FOR DNPNAB
+DNUND7:	ILDB T1,P1	        ;GET A BYTE OF TEXT
+	CALL DNPNAB	        ;PUT IT INTO USER STREAM
+	RETSKP		        ;END OF ARG BLOCK, EXIT
+	SOJG F,DNUND7	        ;AND LOOP
+	CALL DNPNAC		;TERMINATE STRING
+	RETSKP			;END OF ARG BLOCK, RETURN
+	ENDSV.			;END STKVAR
+DNUND8:	SETZ T1,		;ZERO
+	CALL DNPNWR		;STORE IN USER AREA
+	RETSKP			;RETURN
+	RETSKP			;ALSO RETURN
+	SUBTTL DNET. uuo -- .DNSLS - Show link status
+;DNUSLS - Show status about a link
+;Call
+;	M/ Pointer to uuo argument block
+;	W/ Count of words left in block
+;	P1/Flags word of argument block
+;Return
+;	RET		;On failure, T1 contains error code
+;	RETSKP		;On success
+;
+
+DNUSLS:	SAVEAC <U,F,P2>		;STORAGE
+	LOAD T1,FLFLA,+P1	;GET FLAGS FIELD
+	TXNE T1,^-FL%FLS       	;MAKE SURE NO EXTRANEOUS BITS SET
+	 DNERR ILF,<Illegal flag set>
+	CALL DNGNWR		;GET THE JOB/CHANNEL WORD
+	 DNERR WNA,<Wrong number of arguments>
+	MOVE P2,T1		;SAVE WORD IN SAFE PLACE
+	STKVAR <<DSARG,DS.LEN>>	;GET US SOME STORAGE
+	CALL GETCHN		;GET THE CHANNEL NUMBER
+	 DNERR NSC,<No such channel> ;Give error return
+	JUMPE P2,DNUSL7		;IF CHANNEL&JOB 0, WE HAVE FINISHED
+	LOAD T1,SLPKS,(T2)	;#GET NUMBER OF MESSAGES SENT
+	LOAD T3,SLPKR,(T2)	;#NUMBER OF MESSAGES RECEIVED
+	HRL T3,T1		;#MAKE AN XWD OF TWO FIELDS
+DNUSL4:	MOVEM T3,DS.MRC+DSARG	;#SAVE IN ARG BLOCK
+	D36ON			;#ALLOW INTERUPTS AGAIN.
+;NOTE - The SLB is now unsafe. It can be trashed while we are looking at it.
+;	This is unimportant in the normal case, but if there are any pointers
+;	to be traced, they MUST be traced under D36OFF, above.
+	LOAD T1,SLDNA,(T2)	;GET THE NODE NUMBER
+	STOR T1,DSNOD,+DSARG	;STORE FOR LATER USE
+	IFN <SLDOB+SLSOB+1>!<SL.DOB-SL.SOB>,<XWD 0,,0 ;SLDOB AND SLSOB MOVED>
+	MOVE T1,SL.SOB(T2)	;GET OBJECT TYPES
+	MOVEM T1,DS.SOB+DSARG	;STORE IN OUR ARG BLOCK
+	LOAD T1,SLINQ,(T2)	;GET INPUT QUOTA
+	STOR T1,DSIQT,+DSARG	;STORE IN ARG BLOCK
+	LOAD T1,SLOTQ,(T2)	;GET OUTPUT QUOTA
+	STOR T1,DSOQT,+DSARG	;STORE
+	LOAD T1,SLSIZ,(T2)	;GET SEGMENT SIZE
+	STOR T1,DSSEG,+DSARG	;STORE IN ARGUMENT BLOCK
+	LOAD T1,SLSST,(T2)	;GET SLB FLAGS (BINARY STATE)
+	LOAD T3,SLSTA,(T2)	;GET STATE ORDINAL
+	HLL T1,STASIX-1(T3)	;GET SIXBIT STATE INTO LEFT HALF
+	MOVSM T1,DS.STA+DSARG	;STORE IN OUR ARG BLOCK
+	CAXN T2,.NSSCW		;CONNECT WAIT?
+	 JRST [	SETZM DS.XMF+DSARG ;YES, DON'T RETURN FLOW CONTROL
+		JRST DNUSL3]	;AND CONTINUE AFTER
+	LOAD T1,SLXFL,(T2)	;GET TRANSMIT FLOW CONTROL
+	ADDI T1,1		;OFFSET
+	STOR T1,DSXMF,+DSARG	;STORE
+	LOAD T1,SLRFL,(T2)	;GET RECEIVE FLOW CONTROL
+	ADDI T1,1		;OFFSET
+	STOR T1,DSRCF,+DSARG	;
+DNUSL3:	SETZ U,			;DON'T NEED THIS ANY MORE.
+	SKIPL P2		;IS THIS A MONITOR JOB (I.E., NRTSER)
+	JRST DNUSL5		;
+  	HRRZ U,P2		;COPY CHANNEL NUMBER
+	XCALL (MSEC1,NRTLFC##)	;ASK NRTSER FOR THE TTY NUMBER
+DNUSL5:	STOR U,DSMPR,+DSARG	;NRTLFC RETURNS WORD IN U
+	SKIPE T1,DS.NOD+DSARG	;GET NODE NUMBER
+	CALL SCTA2N##		;CONVERT TO NODE NAME
+	 TRNA			;IF THIS HAPPENS, LEAVE NODE NUMBER THERE
+	MOVEM T1,DS.NOD+DSARG	;STORE NODE NAME BACK IN ARG BLOCK
+	MOVE T1,P2		;GET CURRENT JOB/CHANNEL
+	MCALL (RG,MSEC1,PUTWRD##) ;STORE IT IN USER SPACE
+	 DNERR ADE,<Address error>
+	MOVE T1,DS.NOD+DSARG	;GET NODE NAME
+	CALL DNPNWR		;STORE IT IN USER BLOCK
+	 RETSKP
+	MOVE T1,DS.SOB+DSARG	;GET OBJECT TYPES
+	CALL DNPNWR		;STORE IN USER BLOCK
+	 RETSKP
+	MOVE T1,DS.LSW+DSARG	;GET STATUS
+	CALL DNPNWR		;STORE IN USER BLOCK
+	 RETSKP
+	MOVE T1,DS.IQT+DSARG	;QUOTAS
+	CALL DNPNWR		;STORE
+	 RETSKP
+	MOVE T1,DS.SEG+DSARG	;SEGMENT SIZE
+	CALL DNPNWR		;STORE
+	 RETSKP
+	MOVE T1,DS.XMF+DSARG	;FLOW CONTROLS
+	CALL DNPNWR		;STORE
+	 RETSKP
+	MOVE T1,DS.MRC+DSARG	;MESSAGES
+	CALL DNPNWR		;STORE
+	 RETSKP
+	MOVE T1,DS.MPR+DSARG	;MONITOR PROCESS WORD
+	CALL DNPNWR		;STORE
+	 RETSKP
+	RETSKP
+
+DNUSL7:	SETZ T1,		;CLEAR
+	MCALL (RG,MSEC1,PUTWRD##) ;INDICATE END OF LIST
+	 DNERR ADE,<Address error>
+	RETSKP			;AND SAY WE DIDN'T FAIL
+;GETCHN - Get channel number to talk about.
+;
+;Call
+;	P1/ Flags word
+;	P2/ Job,,channel
+;Return
+;	Ret, no can do.
+;	RETSKP, success,
+;	if wrapped, P2/ 0
+;   else, D36OFF and
+;	P2/ Job,,channel as determined
+;	U/ SJB
+;	T2/ SLB
+
+GETCHN:
+	SAVEAC <J,W>		;WE USE THESE
+	TXNE P1,FLFLS		;DO WE STEP?
+	ADDI P2,1		;YES, SKIP PAST CURRENT SLB
+	HLRZ J,P2		;EXTRACT JOB NUMBER
+
+;GET SJB POINTER
+GETCH1:	CAIN J,-1		;WAS THIS NRTSER?
+	 JRST [	SKIPE U,NRTSJP## ;YES, GET POINTER TO NRT'S SJB
+		 JRST GETCH5	;AND JOIN COMMON CODE LATER
+		JRST GETCH2]	;NO SJB, INCREMENT JOB
+	SKIPE J			;ZERO JOB?
+	CAILE J,JOBMAX##	;WITHIN LIMITS?
+	 JRST GETCH2		;NO, GO TO INCREMENT LOGIC DIRECTLY
+	MCALL (RG,MSEC1,FNDPDB##) ;GET POINTER TO THE PDB
+	 JRST GETCH2		;NO PDB, INCREMENT JOB
+	SKIPE U,.PDSJB(W)	;GET POINTER TO SJB
+	 JRST GETCH5		;HAVE POINTER TO SJB, JOIN COMMON CODE
+GETCH2:	TXNN P1,FLFLS		;DO WE HAVE STEP SET?
+	RET			;NO, WE FAIL
+	SETZ P2,		;CLEAR CHANNEL NUMBER
+	MOVEI J,1(J)		;BUMP THE JOB NUMBER (18 BIT INCREMENT)
+	CAILE J,JOBMAX##	;JOB NUMBER IN RANGE
+	 JRST [	MOVEI J,-1	;NO, SET UP FOR NRTSER
+		JRST GETCH1]	;AND GO THROUGH THE LOOP AGAIN
+	JUMPN J,GETCH1		;IF JOB NUMBER POSITIVE, LOOP
+	RETSKP			;WRAPPED ALL THE WAY AROUND, SUCCESS WITH 0
+
+;GET SLB POINTER
+GETCH5:
+	HRL P2,J		;COPY JOB BACK INTO LOOP POINTER
+	D36OFF			;#TO TOUCH SLB'S, MUST HAVE INTERLOCK
+	LOAD T3,SJCHC,(U)	;#GET NUMBER OF CHANNEL SLOTS IN SJB
+	LOAD T4,SJCHT,(U)	;#GET POINTER TO CHANNEL T4
+	TRNN P2,-1		;#DO WE HAVE A CHANNEL NUMBER YET?
+	JRST GETCH7		;#NO, INCREMENT NOW
+GETCH6:	CAIGE T3,(P2)		;#IS CHANNEL OUT OF RANGE?
+	 JRST [	D36ON		;#YES, INCREMENT JOB
+		JRST GETCH2]	;AND TRY NEXT JOB
+	MOVE T1,T4		;#COPY POINTER TO TABLE
+	ADDI T1,-1(P2)		;#ADD OFFSET TO CHANNEL POINTER
+	SKIPE T2,(T1)		;#GET POINTER TO SLB
+	 JRST GETCH8		;#GOT IT, EXIT GRACEFULLY
+GETCH7:	TXNN P1,FLFLS		;#NO POINTER
+	JRST GETCH9		;#CAN'T STEP, SO RETURN ERROR
+	HRRI P2,1(P2)		;#18 BIT INCREMENT
+	JRST GETCH6		;#AND TRY AGAIN
+
+GETCH8:	LOAD T3,SLCHN,(T2)	;#GET CHANNEL NUMBER FROM SLB
+	CAIE T3,(P2)		;#COMPARE TO CHANNEL WE THINK WE ARE USING
+	 BUG.(CHK,SCMBCN,SCMUUO,SOFT,<Bad channel number>,,<
+
+Cause:	The channel number obtained from the SLB field SLCHN doesn't
+	match the channel number we thought we were getting. This probably
+	means that the interlocks aren't correctly arranged, and the SLB
+	has changed out from under us.
+>,GETCH9)
+	RETSKP			;#HAVE POINTERS, RETURN D36OFF
+
+GETCH9:	D36ON			;#RELEASE INTERLOCK
+	RET			;AND RETURN
+
+
+	SUBTTL DNET. uuo -- Conversion from binary to sixbit state
+
+STASIX:	SIXBIT |CW|		;CONNECT WAIT
+	SIXBIT |CR|		;CONNECT RECEIVED
+	SIXBIT |CS|		;CONNECT SENT
+	SIXBIT |RJ|		;REMOTE REJECTED CONNECT INIT
+	SIXBIT |RN|		;LINK IS UP AND RUNNING
+	SIXBIT |DR|		;DISCONNECT RECEIVED
+	SIXBIT |DS|		;DISCONNECT SENT
+	SIXBIT |DC|		;DISCONNECT CONFIRMED
+	SIXBIT |CF|		;NO CONFIDENCE
+	SIXBIT |LK|		;NO LINK
+	SIXBIT |CM|		;NO COMMUNICATION
+	SIXBIT |NR|		;NO RESOURCES
+	SUBTTL DNET. uuo -- Utility routines
+;DNPNAB - Put next ascii byte
+;Call
+;	W/ Number of words left in arg block
+;	M/ Pointer to word before word to deposit
+;	U/ Cummulative word
+;Return
+;	RET on end of arg block
+;	RETSKP succes
+;	DNERR from calling routine on address error
+
+DNPNAB:	ROT U,7			;MAKE ROOM FOR ANOTHER BYTE
+	IOR U,T1		;OR IT IN
+	TLNN U,(377B7)		;HAVE WE FILLED WORD?
+	 RETSKP			;NO, RETURN SUCCESS
+	ROT U,1			;YES, LEFT JUSTIFY
+	MOVE T1,U		;PUT WORD INTO USEFULL PLACE
+	SETZ U,			;AND CLEAR FOR NEXT SET OF WORDS
+      	CALLRET DNPNWR		;AND PUT THE WORD IN USER'S BUFFER.
+;Terminate string (finish putting it into user space)
+DNPNAC:
+	SKIPN T1,U		;PUT WORD WHERE WE CAN PLAY WITH IT
+	CALLRET DNPNWR		;NOTHING THERE, JUST DEPOSIT A ZERO WORD
+	LSH T1,1		;LEFT JUSTIFY
+DNPNAD:	LSH T1,7		;MOVE NEXT BYTE INTO TOP
+	TLNN T1,(377B6)		;ANYTHING THERE?
+	JRST DNPNAD		;NOPE, KEEP TRYING
+;	...			;FALL THROUGH.
+
+;DNPNWR - Put next word
+;Call
+;	W/ Number of words left in arg block
+;	M/ Pointer to word before word to store in
+;	T1/Word to store
+;Return
+;	M incremented always (DNULNN depends on this)
+;	RET		;On end of arg block
+;	RETSKP		;success
+;	DNERR from calling routine on address error
+
+DNPNWR:	HRRI M,1(M)		;18 BIT INCREMENT
+	SOJL W,RTN		;RETURN IF RAN OUT OF ARG BLOCK
+	MCALL (RG,MSEC1,PUTWRD##) ;STORE THE WORD
+	 TRNA			;ARGH. ERROR CONDITION, HANDLE IT.
+	RETSKP			;SUCCESS
+	ADJSP P,-1		;BLOW AWAY CALL TO THIS ROUTINE.
+	DNERR ADE,<Address error>;GIVE ADDRESS CHECK FROM CALLING ROUTINE
+
+
+;DNGNWR - Get next word
+;Call
+;	W/ Number of words left in arg block
+;	M/ Pointer to word before word to fetch
+;Return
+;	RET		;on end of arg block
+;	RETSKP		;success
+;	DNERR from calling routine on address error
+
+DNGNWR:	HRRI M,1(M)		;18 BIT INCREMENT
+	SOJL W,RTN		;RETURN IF RAN OUT OF ARG BLOCK
+	MCALL (RG,MSEC1,GETWRD##) ;GET THE WORD
+	 TRNA			;ERROR CONDITION, HANDLE IT.
+	RETSKP			;SUCCESS
+	ADJSP P,-1		;BLOW AWAY CALL TO THIS ROUTINE
+	DNERR ADE,<Address error>
+	SUBTTL	NODE command
+
+;NODE.D - NODE COMMAND FOR DECNET.
+;	WE GET CALLED WHEN ANF HAS DECIDED THE NODE DOESN'T EXIST.
+;CALL
+;	T2/ NODE NAME.
+;RETURN
+;	JRST UNDERR##		;NO SUCH NODE IN DECNET
+;	SKIP RETURN		;SUCESS
+
+	$HIGH
+
+NODE.D::PUSHJ	P,SAVE4##	;FOR TEMP STORAGE
+	JUMPN	T2,NODED1	;CONTINUE IF HAVE AN ARGUMENT
+	MOVE	T2,LDBTTW##(U)	;GET TTY USE FLAGS
+	TLNE	T2,LTLNRT##	;A NRT OR CTERM LINE?
+	PUSHJ	P,NRTNFL##	;YES--USE NODE THAT OWNS OUR TTY
+	  MOVE	T2,DCNNAM##	;ELSE DEFAULT TO OUR DECNET NAME
+NODED1:	PUSHJ	P,DNODE		;GET DECNET INFORMATION INTO P ACS
+	  POPJ	P,		;NO SUCH NODE, GIVE ERROR MESSAGE
+	MOVEI	T1,[ASCIZ \DECnet	\]
+	PUSHJ	P,CONMES##	;TYPE OUT HEADER
+	MOVE	T2,P4		;GET DECNET NODE NAME
+	PUSHJ	P,PRNAME##	;TYPE IT OUT IN SIXBIT
+	MOVEI	T3,"("		;PREFACE THE NUMBER
+	PUSHJ	P,COMTYO##	;TYPE IT OUT
+	LDB	T1,[POINTR(P1,RN%ARE)]	;GET NODE AREA
+	JUMPE	T1,NODED2	;JUMP IF NO ASSIGNED AREA NUMBER
+	PUSHJ	P,RADX10##	;TYPE IT OUT IN DECIMAL
+	MOVEI	T3,"."		;AREA SEPERATOR
+	PUSHJ	P,COMTYO##	;...
+NODED2:	LDB	T1,[POINTR(P1,RN%NOD)]	;GET NODE NUMBER
+	PUSHJ	P,RADX10##	;TYPE IT OUT IN DECIMAL
+	MOVEI	T1,[ASCIZ \) \] ;CLOSE NUMBER
+	PUSHJ	P,CONMES##	;AND TYPE IT OUT
+	MOVSI	T1,(ST%END)	;IS SYSTEM RUNNING AS AN ETHERNET ENDNODE?
+	TDNE	T1,CNFST2##	;...
+	JRST	[MOVEI	T1,[ASCIZ \may be reachable via the designated router\]
+		 PUSHJ	P,CONMES## ;TELL HIM THE BAD NEWS
+		 JRST	NODED4]	;AND GO FINISH UP
+	JUMPE	P2,[MOVEI T1,[ASCIZ \Unreachable\]
+		   PUSHJ  P,CONMES## ;TYPE IT OUT
+		   JRST   NODED4] ;JOIN COMMON CODE
+	LDB	T1,[POINTR(P1,RN%ARE)]	;GET AREA NUMBER
+	CAMN	T1,RTRHOM##	;IS THIS NODE IN OUR AREA?
+	JRST	NODED3		;YES, CONTINUE ALONG
+	MOVEI	T1,[ASCIZ \may be reachable via the area router\]
+	PUSHJ	P,CONMES##	;TELL HIM NODE MAY BE REACHABLE
+	JRST	NODED4		;AND FINISH UP
+NODED3:	LDB	T1,[POINTR(P1,RN%NOD)]	;GET JUST NODE NUMBER
+	CAMN	T1,RTRADR##	;IS THIS OURSELVES?
+	JRST	NODED4		;YES, THAT'S ALL FOLKS.
+	MOVEI	T1,[ASCIZ \Hops:\]
+	PUSHJ	P,CONMES##	;TYPE OUT MORE HEADERS
+	HLRZ	T1,P3		;GET HOPS FROM SAVED LOCATION
+	PUSHJ	P,RADX10##	;TYPE IT OUT IN DECIMAL
+	MOVEI	T1,[ASCIZ \ Cost:\]
+	PUSHJ	P,CONMES##	;TYPE IT OUT
+	HRRZ	T1,P3		;GET COST FROM SAVED LOCATION
+	PUSHJ	P,RADX10##	;PRINT OUT IN DECIMAL
+
+	MOVEI	T1,[ASCIZ \ via \] ;MORE HEADER INFO
+	PUSHJ	P,CONMES##	;TYPE IT OUT
+	LOAD	T2,LIDEV,+P2	;GET THE DEVICE TYPE
+
+	HRRZI	T1,KONNAM##(T2)	;GET LOCAL POINTER TO KONTROLLER DEVICE NAME
+	PUSHJ	P,CONMES##	;TYPE IT OUT AS AN ASCIZ STRING
+	MOVEI	T3,"-"		;SEPERATOR
+	PUSHJ	P,COMTYO	;TYPE OUT
+
+	LOAD	T1,LIKON,+P2	;GET THE LINE/CPU NUMBER
+	PUSHJ	P,PRTDIG##	;TYPE IT OUT IN DECIMAL
+	LOAD	T1,LIDEV,+P2	;GET DEVICE TYPE AGAIN
+	CAIN	T1,LD.ETH	;IS IT AN ETHERNET?
+	JRST	NODED4		;YES, WE'RE DONE
+	MOVEI	T3,"-"		;SEPERATOR
+	PUSHJ	P,COMTYO	;TYPE OUT THE DASH
+	LOAD	T1,LIUNI,+P2	;GET THE UNIT NUMBER
+	PUSHJ	P,PRTDIG##	;TYPE IT OUT
+NODED4:	PUSHJ	P,PCRLF##	;AND RETURN
+	JRST	CPOPJ1##
+;GET DECNET INFO. RETURNS INFO IN P ACS:
+;CALL
+;T2/ NODE NAME
+;RETURN
+;P1/ NODE NUMBER
+;P2/ LINE ID (0 IF UNREACHABLE)
+;P3/ HOPS,,COST
+;P4/ NODE NAME
+
+	INTERN	DNODE
+	XRENT	DNODE
+
+	MOVE	T1,T2		;PUT NODE NAME WHERE SESSION CONTROL EXPECTS
+	PUSHJ	P,SCTN2A##	;ASK SESSION CONTROL ABOUT IT
+	POPJ	P,
+	MOVE	P1,T1		;SAVE NODE ADDRESS
+	PUSHJ	P,SCTA2N##	;CONVERT IT TO A NAME
+	MOVE	T1,['?!?!?!']	;CAN'T HAPPEN, BUT DON'T LET IT BOTHER US
+	MOVE	P4,T1		;SAVE FOR LATER
+	MOVE	T1,P1		;GET ADDRESS AGAIN.
+	PUSHJ	P,RTNLID##	;ASK IF REACHABLE
+	  JRST	[SETZ P2,	;INDICATE UNREACHABLE
+		 JRST CPOPJ1##]	;AND RETURN
+	MOVE	P2,T1		;SAVE LINE ID FOR LATER
+	LDB	T1,[POINTR(P1,RN%ARE)]	;GET AREA NUMBER
+	CAME	T1,RTRHOM##	;IS NODE IN OUR AREA?
+	JRST	CPOPJ1##	;NO, ALL DONE, RETURN
+	LDB	T2,[POINTR(P1,RN%NOD)]	;GET NODE NUMBER
+	ADD	T2,RTRNRV##	;AND POINT TO THE ROUTER DATA WORD.
+	LDB	T1,RTNHOP##	;GET HOPS TO NODE.
+	HRL	P3,T1		;SAVE FOR LATER USE
+	LDB	T1,RTNCST##	;GET COST TO NODE
+	HRR	P3,T1		;SAVE FOR LATER USE
+	JRST	CPOPJ1##	;AND RETURN
+	SUBTTL	DECnet GETTAB tables
+
+
+;THE FOLLOWING TABLE IS FOR USE WITH THE TOPS-10 GETTAB UUO.  IT ALLOWS
+;THE USER TO FIND THE ADDRESS OF CERTAIN DECNET QUEUE HEADERS.
+
+	$LOW
+
+DCNGTB::RTRCBQ##	;(%DNRCH) ROUTER CIRCUIT BLOCK QUEUE HEADER
+	NSPAPQ##	;(%DNNPH) NSP PORT BLOCK QUEUE HEADER
+IFN FTKL10,ETDTAB##	;(%DNETH) DTESER ETD BLOCK TABLE
+IFE FTKL10, EXP	0	;(%DNETH) DTESER ETD BLOCK TABLE
+	NRTSJP##	;(%DNNSJ) NRTSER SJB POINTER
+	NRTCHP##	;(%DNNCH) NRTSER NRB (CHANNEL) TABLE PTR
+	NMXNDQ##	;(%DNNDQ) NMX'S NODE QUEUE BLOCK HEADER
+	0		;(%DNLOC) OBSOLETE IN 7.03
+	0		;(%DNPTR) OBSOLETE IN 7.03
+	CHBLKS##	;(%DNCHB) POINTER TO CH BLOCKS.
+	KONNAM##	;(%DNKON) POINTER TO KONTROLLER NAME TABLE
+	RTRNRV##	;(%DNNRV) POINTER TO ADDRESS OF ROUTER VECTOR
+			;	  INDEXED BY NODE NUMBER
+	RTROFS##	;(%DNOFS) POINTER TO ADDRESS OF OFFSET TO
+			;	  SECONDARY ROUTING VECTOR
+	RTRMXN##	;(%DNRMX) POINTER TO ADDRESS OF ROUTER MAXIMUM
+			;	  NODE NUMBER
+	RTNCST##	;(%DNCST) ADDRESS OF BYTE POINTER TO COST
+	RTNHOP##	;(%DNHOP) ADDRESS OF BYTE POINTER TO HOPS
+	RTNLCL##	;(%DNLCL) ADDRESS OF BYTE POINTER TO LOCAL BIT
+	RTNRCH##	;(%DNRCH) ADDRESS OF BYTE POINTER TO ACTIVE BIT
+	0		;(%DNNDT) OBSOLETE IN 7.03
+	0		;(%DNSMX) OBSOLETE IN 7.03
+	DCNACB##	;(%DNACB) ADDRESS OF DECNET ALLOCATION CONTROL BLOCK
+DCNGTL==:<.-DCNGTB-1>B26;GETTAB UUO WANTS THIS RIDICULOUS FORMAT
+	SUBTTL	Impure Storage
+
+	RESCD			;IMPURE STUFF
+
+SCUDFT::
+REPEAT 0,<EXP <FLD(%NSGOL,PDGOL) ! FLD(%NSDQT,PDDQT) ! FLD(%NSIPR,PDIPR)>>
+REPEAT 1,<EXP <FLD(^D9,PDGOL) ! FLD(^D16,PDDQT) ! FLD(^D50,PDIPR)>>
+
+	XRESCD			;SO LITERALS ARE PURE
+	SUBTTL	End of SCMUUO
+
+	.XCMSY
+
+	RESDT
+SCULOW::!
+	XRESCD
+	END
