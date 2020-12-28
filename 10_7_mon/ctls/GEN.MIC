@@ -1,0 +1,5 @@
+.IF ($A="").MIC ABORT
+.PA=BASE:
+.R TECO
+*EBGEN.CTL^[Y<-1-^N;A>^[<:FS###^['A^[;>EX^[^[
+.SU GEN/BATLOG:SUPER,LOGS:

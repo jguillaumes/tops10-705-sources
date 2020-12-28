@@ -5,12 +5,12 @@ from os import listdir, rename
 import os.path
 import re
 
-SOURCEPATH = "10_7_mon"
+SOURCEPATH = "10_7_mon/ctls"
 
 tops20File = re.compile("(.*\.\w\w\w)(\.\d)")
 
 
-files = listdir("10_7_mon")
+files = listdir(SOURCEPATH)
 pairs = []
 
 for f in files:

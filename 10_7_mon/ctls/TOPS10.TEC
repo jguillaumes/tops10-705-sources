@@ -1,0 +1,56 @@
+!Below teco macro uses following q-registers:			!
+!	A - Input files						!
+!	B - Store BUILDS.PTH names for build directories	!
+!	C - Store BUILDS.PTH names for FGEN directories		!
+!	D - Store input file lines which apply to this directory!
+!	9 - Store command string to search for device name	!
+!	8 - Same device name as above, but without commands.	!
+!	0,1,2 - Temporaries					!
+ERTOPS10.FILY<-1-;A>JSAUTCON0L.,ZXA.,ZK
+ERDECNET.FILA<-1-;A>
+ERMPE.FILA<-1-;A>
+ERUNSUP.FILA<-1-;A>
+ZJGAHXA
+ERBUILDS.PTHY<-1-;A>S!<*>!1L0,.KS0LK.,ZXB.,ZKBJ
+<.-Z;1L.,ZXC.,ZKBJIQ0J:S19i.U0S:;Q0,.X8Z-.D27IIU2Q2"S.-Q1"g0U2''Q1J27I
+   HX9HK
+   GABJ
+   !Extract files which apply to this directory!
+   <:3S|;.-1U01L2R.U1M9Q2"F0KK'>BJHXD
+   !Extract universals which apply to this directory!
+   <.-Z;1A-|U2LQ2"E-K'>
+   !Convert to and write UNIV.CMD in directory!
+   ZJZU1IEWUNIV.CMD27IQ1+2JG8Q1,ZX0Q1,ZKM0BJ
+   <.U0:S|;Q0,.K:S|;.-1-Q0"E1lQ0,.kONXT'.-1U01L2RQ0,.K1LI,!NXT!>ZJ-DPEF
+   !Convert to and write TOPS10.CMD in directory!
+   HKIEWTOPS10.CMD27I2JG8HX0HKM0GDBJ
+   <.U0:S|;Q0,.K:S|;.-1-Q0"E1lq0,.kONXT'.-1U01L2RQ0,.K1LI,!NXT!>ZJ-DPEF
+   !Convert to and write TOPS10.CCL in directory!
+   HKIEWTOPS10.CCL27I2JG8HX0HKM0GD
+   BJITOPS10.REL=
+   <.U0:2S|;Q0,.K:S|;1R1K.-Q0"NI,'>ZJ-DPEF
+HKGCBJ>
+GBBJ:SL/"S0LZ-.D'BJ
+<.-Z;1L.,ZXB.,ZKBJIQ0J:S19i.U0S:;Q0,.X8Z-.D27IIU2Q2"S.-Q1"g0U2''Q1J27I
+   HX9HK
+   GABJ
+   !Extract files which apply to this directory!
+   <:3S|;.-1U01L2R.U1M9Q2"F0KK'>BJHXD
+   !Convert to and write COMMON.CMD in directory!
+   HKIEWCOMMON.CMD27I2JG8HX0HKM0GDBJ
+   <.U0:S|;Q0,.K:S|;.-1-Q0"E1lq0,.kONXT'.-1U01L2RQ0,.K1LI,!NXT!>ZJ-DPEF
+   !Convert to and write GLOB.MIC in directory!
+   HKIEWGLOB.MIC27I2JG8HX0HKM0GD
+   BJI.R GLOB
+
+   <.U0:2S|;Q0,.K:S|;1R1K.-Q0"NI
+Q0JI*L'>ZJI*TOPS10.REL
+=DSK:TOPS10.GLB=27II
+=^Z
+PEF
+   !Convert to and write LINK.CCL in directory!
+   HKIEWLINK.CCL27I2JG8HX0HKM0GD
+   BJIMON/SAVE/NOINIT/HASH:13K = /LOCALS 
+   <.U0:2S|;Q0,.K:S|;1R1K.-Q0"NI,'>ZJITOPS10.REL/PATCH:200/SEARCH/COUNTERS/GO
+PEF
+HKGBBJ>^Z

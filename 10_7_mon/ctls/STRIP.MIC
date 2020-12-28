@@ -1,0 +1,21 @@
+.SILENCE
+.ON ERROR:ABORT
+!MIC file to extract local symbols from monitor modules.
+!
+.IF ($A>"") .GOTO GOTLIB
+!Enter a list of the desired module names followed by a
+!CRLF.  If no names are specified, a default will be used.
+!
+.MIC INPUT A,"Modules: "
+.IF ($A#"") .GOTO MAKLIB
+.LET A="NRTSER,NTMAN,DTESER,LATSER,LLMOP,EDDT"
+GOTLIB::
+.MIC DISPLAY "[Extracting symbols from ",A,"]",CRLF
+MAKLIB::
+.R MAKLIB
+*TOPS20=TOPS10/EXTRACT:('A)
+*TOPS20=TOPS20/NOLOCALS
+*TOPS10=TOPS10/MASTER:('A),TOPS20/REPLACE:('A)
+=^Z
+.DELETE TOPS20.REL
+![TOPS10.REL updated]

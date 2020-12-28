@@ -1,0 +1,41 @@
+The various .CTL and .MIC files used in the weekly monitor build procedures
+must be done in the following order:
+
+1)	SU START		!Must be first
+
+Once START completes successfully:
+
+2)	For each monitor module which is new this week, do
+
+	DO NEWMOD modulename
+
+	and check with its author that the appropriate .FIL file
+	(one of TOPS10, DECNET, MPE, or UNSUP) has been updated for it.
+
+3)	DO SCC,,BUILD		![DEC only] Build updated sources in
+				! BASE: from the engineers' edits
+
+4)	DO COMPILE MONGEN	!If necessary
+
+After MONGEN is successful:
+
+5)	DO GEN 254		!or whatever is this week's 3-digit load number
+
+After GEN is successful:
+
+6)	SU UNIV
+
+After UNIV has been verified:
+
+7)	DO COMPILE x		!for each changed module "x"
+	(Actually, DO COMPILE UUOSYM can come anytime between START and DONE.)
+				!These batch jobs may be run simultaneously
+
+When step 7 has been verified:
+
+8)	DO BUILDS
+
+Then verify each of the BUILD & COMPIL jobs submitted by step 9.
+
+Software Engineering will DO DONE once the monitor has been verified, usually
+sometime Wednesday morning.

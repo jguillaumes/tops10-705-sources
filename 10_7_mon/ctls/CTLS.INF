@@ -1,0 +1,30 @@
+;List of files used in the monitor build procedures
+
+BUILD.CTL		;Actual build control file
+COMPIL.CTL		;Compiles modules going into TOPS10.REL
+START.CTL		;Cleans up a PPN to start a build
+SWITCH.INI		;Some convenient switches
+TOPS10.TEC		;Massages TOPS10.FIL into TOPS10.CCL and TOPS10.CMD
+TOPS10.FIL		;List of files to compile and where they go
+DECNET.FIL		;List of DECnet files to compile and where they go
+UNSUP.FIL		;List of customer-supported modules to compile
+MPE.FIL			;List of MPE files to compile and where they go
+TREE.TEC		;Massages BUILDS.PTH into micro to build directories
+
+;You will need to create BUILDS.PTH, UNIV.CTL, and GEN.CTL to conform to your
+;peculiarities, use the ones supplied ONLY as templates or models.
+
+;List of files used by release engineering in the weekly update process
+
+BUILDS.DCL		;Command definitions (CN, CPO, CM)
+BUILDS.MIC		;Submits all the build control files
+BUILDS.PTH		;Defines the build areas
+COMCTL.TEC		;Massages COMCTL.MIC into a module.CTL
+COMCTL.MIC		;template module compiling control file
+COMPIL.MIC		;Submits a control file to compile a source file
+DONE.MIC		;Submits a batch job to create .CFCs and move sources
+DONE.TEC		;Massages data from DONE.MIC to produce DONE.CTL
+GEN.CTL			;Runs MONGEN dialogs
+GEN.MIC			;Modifies GEN.CTL to account for load number
+UNIV.CTL		;Compiles all the universals in all areas
+UUOSYM.CTL		;Compiles UUOSYM, rel->REL:, unv->UNV:, new DDT->SYS:
